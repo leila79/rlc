@@ -225,8 +225,9 @@ class LowerMalloc: public mlir::OpConversionPattern<mlir::rlc::MallocOp>
 
 		const auto& dl = mlir::DataLayout::closest(op);
 
-		auto baseType = typeConverter->convertType(mlir::rlc::ProxyType::get(
-				op.getType().cast<mlir::rlc::OwningPtrType>().getUnderlying()));
+		auto baseType = typeConverter->convertType(
+				mlir::rlc::ProxyType::get(
+						op.getType().cast<mlir::rlc::OwningPtrType>().getUnderlying()));
 
 		auto baseSize = rewriter.getI64IntegerAttr(dl.getTypeSize(baseType));
 		auto count = rewriter.create<mlir::LLVM::ConstantOp>(
@@ -377,10 +378,13 @@ class ExplicitConstructRewriter
 				typeConverter->convertType(mlir::rlc::ProxyType::get(op.getType()));
 		auto alloca = makeAlloca(rewriter, mapped, op.getLoc());
 
-		rewriter.create<mlir::LLVM::CallOp>(
+		auto callOp = rewriter.create<mlir::LLVM::CallOp>(
 				op.getLoc(),
-				mlir::TypeRange(),
+				mlir::LLVM::LLVMFunctionType::get(
+						mlir::LLVM::LLVMVoidType::get(op.getContext()),
+						{ alloca.getType() }),
 				mlir::ValueRange({ adaptor.getInitializer(), alloca }));
+
 		rewriter.replaceOp(op, alloca);
 		return mlir::LogicalResult::success();
 	}
@@ -528,10 +532,11 @@ class IsOpRewriter: public mlir::OpConversionPattern<mlir::rlc::IsOp>
 			return mlir::success();
 		}
 
-		auto convertedUnionType = typeConverter
-																	->convertType(mlir::rlc::ProxyType::get(
-																			op.getExpression().getType()))
-																	.cast<mlir::LLVM::LLVMStructType>();
+		auto convertedUnionType =
+				typeConverter
+						->convertType(
+								mlir::rlc::ProxyType::get(op.getExpression().getType()))
+						.cast<mlir::LLVM::LLVMStructType>();
 		auto lastElementIndex = convertedUnionType.getBody().size() - 1;
 
 		auto zero = rewriter.getZeroAttr(rewriter.getI64Type());
@@ -564,6 +569,62 @@ class IsOpRewriter: public mlir::OpConversionPattern<mlir::rlc::IsOp>
 		makeAlignedStore(rewriter, extended, resultAlloca, op.getLoc());
 		rewriter.replaceOp(op, resultAlloca);
 
+		return mlir::success();
+	}
+};
+
+class BracketEraser: public mlir::OpConversionPattern<mlir::rlc::BracketsOp>
+{
+	using mlir::OpConversionPattern<mlir::rlc::BracketsOp>::OpConversionPattern;
+
+	mlir::LogicalResult matchAndRewrite(
+			mlir::rlc::BracketsOp op,
+			OpAdaptor adaptor,
+			mlir::ConversionPatternRewriter& rewriter) const final
+	{
+		rewriter.replaceOp(op, { adaptor.getInput() });
+		return mlir::success();
+	}
+};
+
+class UsingTypeEraser: public mlir::OpConversionPattern<mlir::rlc::UsingTypeOp>
+{
+	using mlir::OpConversionPattern<mlir::rlc::UsingTypeOp>::OpConversionPattern;
+
+	mlir::LogicalResult matchAndRewrite(
+			mlir::rlc::UsingTypeOp op,
+			OpAdaptor adaptor,
+			mlir::ConversionPatternRewriter& rewriter) const final
+	{
+		rewriter.eraseOp(op);
+		return mlir::success();
+	}
+};
+
+class ImportEraser: public mlir::OpConversionPattern<mlir::rlc::Import>
+{
+	using mlir::OpConversionPattern<mlir::rlc::Import>::OpConversionPattern;
+
+	mlir::LogicalResult matchAndRewrite(
+			mlir::rlc::Import op,
+			OpAdaptor adaptor,
+			mlir::ConversionPatternRewriter& rewriter) const final
+	{
+		rewriter.eraseOp(op);
+		return mlir::success();
+	}
+};
+
+class CommentEraser: public mlir::OpConversionPattern<mlir::rlc::Comment>
+{
+	using mlir::OpConversionPattern<mlir::rlc::Comment>::OpConversionPattern;
+
+	mlir::LogicalResult matchAndRewrite(
+			mlir::rlc::Comment op,
+			OpAdaptor adaptor,
+			mlir::ConversionPatternRewriter& rewriter) const final
+	{
+		rewriter.eraseOp(op);
 		return mlir::success();
 	}
 };
@@ -629,8 +690,9 @@ class ValueUpcastRewriter
 		if (op.getInput().getType() != op.getResult().getType() and
 				not op.getInput().getType().isa<mlir::rlc::AlternativeType>())
 		{
-			op.emitError("internal error somehow a template upcast did not had the "
-									 "same input and output type at lowering time");
+			op.emitError(
+					"internal error somehow a template upcast did not had the "
+					"same input and output type at lowering time");
 			return mlir::failure();
 		}
 		rewriter.replaceOp(op, op.getInput());
@@ -1278,6 +1340,7 @@ class CallRewriter: public mlir::OpConversionPattern<mlir::rlc::CallOp>
 	{
 		rewriter.setInsertionPoint(op);
 		llvm::SmallVector<mlir::Value, 2> args;
+		llvm::SmallVector<mlir::Type, 2> argTypes;
 		assert(op.getNumResults() <= 1);
 		args.push_back(adaptor.getCallee());
 		auto loc = op.getLoc();
@@ -1296,10 +1359,16 @@ class CallRewriter: public mlir::OpConversionPattern<mlir::rlc::CallOp>
 		}
 
 		for (auto arg : adaptor.getArgs())
+		{
 			args.push_back(arg);
+			argTypes.push_back(arg.getType());
+		}
 
 		auto newOp = rewriter.create<mlir::LLVM::CallOp>(
-				op.getLoc(), mlir::ValueRange(), args);
+				op.getLoc(),
+				mlir::LLVM::LLVMFunctionType::get(
+						mlir::LLVM::LLVMVoidType::get(op.getContext()), argTypes),
+				args);
 
 		if (type.isa<mlir::rlc::ReferenceType>())
 			result = makeAlignedLoad(
@@ -1839,8 +1908,9 @@ class FunctionRewriter
 		{
 			auto subprogramAttr = diGenerator.getFunctionAttr(
 					newF, op.getUnmangledName(), op.getType());
-			newF->setLoc(mlir::FusedLoc::get(
-					op.getContext(), { newF.getLoc() }, subprogramAttr));
+			newF->setLoc(
+					mlir::FusedLoc::get(
+							op.getContext(), { newF.getLoc() }, subprogramAttr));
 
 			rewriter.setInsertionPointToStart(&newF.getBody().front());
 			for (auto [argument, value, newValue] : llvm::zip(
@@ -2287,6 +2357,9 @@ namespace mlir::rlc
 					.add<NullLowerer>(converter, &getContext())
 					.add<YieldReferenceRewriter>(converter, &getContext())
 					.add<AliasTypeEraser>(converter, &getContext())
+					.add<CommentEraser>(converter, &getContext())
+					.add<ImportEraser>(converter, &getContext())
+					.add<BracketEraser>(converter, &getContext())
 					.add<CopyRewriter>(converter, &getContext())
 					.add<ArrayAccessRewriter>(converter, &getContext())
 					.add<UninitializedConstructRewriter>(converter, &getContext())
@@ -2296,6 +2369,7 @@ namespace mlir::rlc
 					.add<VarNameLowerer>(
 							converter, &getContext(), diGenerator, debug_info)
 					.add<ReferenceRewriter>(converter, &getContext())
+					.add<UsingTypeEraser>(converter, &getContext())
 					.add<BuiltinAsPtrRewriter>(converter, &getContext())
 					.add<LowerIsDoneOp>(converter, &getContext())
 					.add<ClassDeclarationRewriter>(converter, &getContext())

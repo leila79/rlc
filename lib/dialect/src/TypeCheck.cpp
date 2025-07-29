@@ -195,16 +195,9 @@ static mlir::LogicalResult declareEntities(mlir::ModuleOp op)
 				 casted.getTemplateParameters().getAsValueRange<mlir::TypeAttr>())
 			templates.push_back(type);
 		rewriter.setInsertionPoint(casted);
-		auto newDecl = rewriter.create<mlir::rlc::ClassDeclaration>(
-				casted.getLoc(),
+		casted.getResult().setType(
 				mlir::rlc::ClassType::getIdentified(
-						casted.getContext(), casted.getName(), templates),
-				casted.getNameAttr(),
-				casted.getMembers(),
-				casted.getTemplateParameters(),
-				casted.getTypeLocation().has_value() ? *casted.getTypeLocation()
-																						 : nullptr);
-		rewriter.eraseOp(casted);
+						casted.getContext(), casted.getName(), templates));
 	}
 	return mlir::success();
 }
@@ -230,9 +223,10 @@ static mlir::LogicalResult declareActionEntities(mlir::ModuleOp op)
 				action.getLoc(),
 				type,
 				type.getName(),
-				llvm::SmallVector<mlir::rlc::ClassFieldDeclarationAttr, 3>({}),
 				mlir::ArrayRef<mlir::Type>({}),
 				nullptr);
+
+		mlir::rlc::markSynthetic(classDecl);
 
 		if (decls.count(type.getName()) != 0)
 		{
@@ -268,7 +262,6 @@ static mlir::LogicalResult deduceClassBody(
 		return mlir::success();
 
 	llvm::SmallVector<mlir::rlc::ClassFieldAttr> newFields;
-	llvm::SmallVector<mlir::rlc::ClassFieldDeclarationAttr> newFieldsDeclarations;
 
 	llvm::SmallVector<mlir::Type, 2> checkedTemplateParameters;
 
@@ -291,32 +284,37 @@ static mlir::LogicalResult deduceClassBody(
 		scopedConverter.registerType(actualType.getName(), actualType);
 	}
 
-	for (auto field : decl.getMemberFields())
+	for (auto field : decl.getOps<mlir::rlc::ClassFieldDeclaration>())
 	{
-		auto converted = scopedConverter.convertType(field.getDeshugarizedType());
+		auto converted = scopedConverter.convertType(
+				field.getDeclaration().getDeshugarizedType());
 		if (!converted)
 		{
 			return mlir::failure();
 		}
 		newFields.push_back(
-				mlir::rlc::ClassFieldAttr::get(field.getName(), converted));
+				mlir::rlc::ClassFieldAttr::get(
+						field.getDeclaration().getName(), converted));
 
-		if (field.getShugarizedType())
+		if (field.getDeclaration().getShugarizedType())
 		{
 			auto shugarizedType = scopedConverter.shugarizedConvertType(
-					field.getShugarizedType().getType());
+					field.getDeclaration().getShugarizedType().getType());
 			if (!shugarizedType)
 			{
 				return mlir::failure();
 			}
-			newFieldsDeclarations.push_back(mlir::rlc::ClassFieldDeclarationAttr::get(
-					field.getContext(),
-					newFields.back(),
-					field.getShugarizedType().replaceType(shugarizedType)));
+			field.setDeclarationAttr(
+					mlir::rlc::ClassFieldDeclarationAttr::get(
+							field.getContext(),
+							newFields.back(),
+							field.getDeclaration().getShugarizedType().replaceType(
+									shugarizedType)));
 		}
 		else
-			newFieldsDeclarations.push_back(mlir::rlc::ClassFieldDeclarationAttr::get(
-					field.getContext(), newFields.back(), nullptr));
+			field.setDeclarationAttr(
+					mlir::rlc::ClassFieldDeclarationAttr::get(
+							field.getContext(), newFields.back(), nullptr));
 	}
 	auto finalType = mlir::rlc::ClassType::getIdentified(
 			decl.getContext(), decl.getName(), checkedTemplateParameters);
@@ -327,13 +325,9 @@ static mlir::LogicalResult deduceClassBody(
 		return mlir::failure();
 	}
 
-	decl = rewriter.replaceOpWithNewOp<mlir::rlc::ClassDeclaration>(
-			decl,
-			finalType,
-			decl.getName(),
-			newFieldsDeclarations,
-			checkedTemplateParameters,
-			decl.getTypeLocation().has_value() ? *decl.getTypeLocation() : nullptr);
+	decl.getResult().setType(finalType);
+	decl.setTemplateParametersAttr(
+			rewriter.getTypeArrayAttr(checkedTemplateParameters));
 
 	return mlir::success();
 }
@@ -459,6 +453,37 @@ static mlir::LogicalResult checkReturnsPath(mlir::rlc::FunctionOp fun)
 	return mlir::success();
 }
 
+// enum field expressions are already moved to their proper location
+// when we type check, but we type check them again here
+// so that we can reserialize properly the file if we need to
+static mlir::LogicalResult deduceEnumFieldTypes(mlir::ModuleOp op)
+{
+	mlir::rlc::ModuleBuilder builder(op);
+
+	mlir::IRRewriter rewriter(op.getContext());
+	llvm::SmallVector<mlir::rlc::EnumDeclarationOp, 4> funs(
+			op.getOps<mlir::rlc::EnumDeclarationOp>());
+
+	for (auto enumDecl : funs)
+	{
+		for (auto field : enumDecl.getOps<mlir::rlc::EnumFieldDeclarationOp>())
+		{
+			for (auto exp : field.getOps<mlir::rlc::EnumFieldExpressionOp>())
+			{
+				llvm::SmallVector<mlir::Operation*, 4> ops;
+				for (auto& op : exp.getBody().front())
+					ops.push_back(&op);
+				for (auto& op : ops)
+				{
+					if (mlir::rlc::typeCheck(*op, builder).failed())
+						return mlir::failure();
+				}
+			}
+		}
+	}
+	return mlir::success();
+}
+
 static mlir::LogicalResult deduceOperationTypes(mlir::ModuleOp op)
 {
 	mlir::rlc::ModuleBuilder builder(op);
@@ -500,6 +525,7 @@ static mlir::LogicalResult deduceOperationTypes(mlir::ModuleOp op)
 								op.getLoc(),
 								mlir::rlc::IntegerType::getInt64(op.getContext()),
 								casted);
+				mlir::rlc::markSynthetic(integerLiteral);
 				builder.getSymbolTable().add(casted.getName(), integerLiteral);
 			}
 			else
@@ -752,6 +778,12 @@ namespace mlir::rlc
 			}
 
 			if (deduceOperationTypes(getOperation()).failed())
+			{
+				signalPassFailure();
+				return;
+			}
+
+			if (deduceEnumFieldTypes(getOperation()).failed())
 			{
 				signalPassFailure();
 				return;

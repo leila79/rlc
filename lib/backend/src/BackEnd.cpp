@@ -48,7 +48,6 @@ limitations under the License.
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/Host.h"
-#include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Instrumentation/SanitizerCoverage.h"
 #include "llvm/Transforms/Utils/Mem2Reg.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
@@ -183,8 +182,8 @@ static void runOptimizer(
 	}
 	else
 	{
-		ModulePassManager MPM =
-				PB.buildO0DefaultPipeline(OptimizationLevel::O0, true);
+		ModulePassManager MPM = PB.buildO0DefaultPipeline(
+				OptimizationLevel::O0, ThinOrFullLTOPhase::None);
 		if (targetIsWindows)
 			MPM.addPass(createModuleToFunctionPassAdaptor(AddWindowsDLLExportPass()));
 		if (emitSanitizerInstrumentation and not targetIsWindows)
@@ -292,7 +291,7 @@ static void compile(
 	M->setDataLayout(*info.pimpl->datalayout);
 	llvm::UpgradeDebugInfo(*M);
 
-	auto &LLVMTM = static_cast<LLVMTargetMachine &>(*info.pimpl->targetMachine);
+	auto &LLVMTM = *info.pimpl->targetMachine;
 	auto *MMIWP = new MachineModuleInfoWrapperPass(&LLVMTM);
 
 	llvm::legacy::PassManager manager;
@@ -336,7 +335,7 @@ static mlir::LogicalResult getLinkerInvocation(
 	auto binDir = llvm::sys::path::parent_path(clangPath);
 	auto installDir = llvm::sys::path::parent_path(binDir);
 	llvm::SmallVector<char, 4> clangResourceDir;
-	llvm::sys::path::append(clangResourceDir, installDir, "lib", "clang", "19");
+	llvm::sys::path::append(clangResourceDir, installDir, "lib", "clang", "20");
 	driver.ResourceDir =
 			llvm::StringRef(clangResourceDir.data(), clangResourceDir.size());
 	if (targetMac and not llvm::sys::Process::GetEnv("SDKROOT"))
@@ -438,12 +437,6 @@ static int linkLibraries(
 
 	if (!maybeRealPath and (emitSanitizerInstrumentation or linkAgainstFuzzer))
 	{
-		if (info.isWindows())
-		{
-			llvm::consumeError(maybeRealPath.takeError());
-			llvm::errs() << "sanitizers and fuzzer are not supported on windows\n";
-			return -1;
-		}
 		llvm::consumeError(maybeRealPath.takeError());
 		llvm::errs()
 				<< "could not find clang, it is mandatory when using the fuzzer or the "
@@ -464,7 +457,7 @@ static int linkLibraries(
 	llvm::SmallVector<std::string, 4> argSource;
 	argSource.push_back("clang");
 	argSource.push_back(library.getFilename().str());
-	argSource.push_back("-target=" + info.tripleToString());
+	argSource.push_back("--target=" + info.tripleToString());
 	if (info.isWindows())
 	{
 		argSource.push_back("-fuse-ld=lld");
@@ -472,6 +465,7 @@ static int linkLibraries(
 		argSource.push_back("-nodefaultlibs");
 		argSource.push_back("-Wl,-nodefaultlib");
 		argSource.push_back("-Wl,-subsystem:console");
+		argSource.push_back("-O2");
 	}
 	else if (not info.isMacOS())
 		argSource.push_back("-lm");
@@ -511,8 +505,7 @@ static int linkLibraries(
 			argSource.push_back("-no-pie");
 		}
 	}
-	if ((emitSanitizerInstrumentation or linkAgainstFuzzer) and
-			not info.isWindows())
+	if ((emitSanitizerInstrumentation or linkAgainstFuzzer))
 	{
 		std::string arg("-fsanitize=");
 		if (emitSanitizerInstrumentation)

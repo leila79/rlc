@@ -74,6 +74,7 @@ namespace mlir::rlc
 			hideStandardLibFiles = doIt;
 		}
 		void setGraphInlineCalls(bool doIt) { graphInlineCalls = doIt; }
+		void setKeepComments(bool doIt) { keepComments = doIt; }
 		void setGraphKeepOnlyActions(bool doIt) { graphKeepOnlyActions = doIt; }
 		void setGraphRegexFilter(std::string s) { graphRegexFilter = s; }
 
@@ -100,6 +101,7 @@ namespace mlir::rlc
 		bool emitDependencyFile = false;
 		bool skipParsing = false;
 		bool debug = false;
+		bool keepComments = false;
 
 		std::string clangPath = "clang";
 

@@ -30,8 +30,12 @@ namespace rlc
 				mlir::MLIRContext* context,
 				llvm::ArrayRef<std::string> includeDirs,
 				llvm::SourceMgr* srcManager,
-				mlir::ModuleOp module = nullptr)
-				: sourceManager(srcManager), context(context), module(module)
+				mlir::ModuleOp module = nullptr,
+				bool keepComments = false)
+				: sourceManager(srcManager),
+					context(context),
+					module(module),
+					keepComments(keepComments)
 		{
 			sourceManager->setIncludeDirs(includeDirs);
 			if (module == nullptr)
@@ -44,7 +48,7 @@ namespace rlc
 				llvm::StringRef fileName,
 				llvm::SmallVector<std::string>& fileToLoad)
 		{
-			Parser parser(context, content.str(), fileName.str());
+			Parser parser(context, content.str(), fileName.str(), keepComments);
 			auto maybeAst = parser.system(module);
 			for (auto file : parser.getImportedFiles())
 			{
@@ -62,6 +66,7 @@ namespace rlc
 			std::set<std::string> alreadyLoaded;
 			llvm::SmallVector<std::string> fileToLoad;
 
+			alreadyLoaded.insert(fileName.str());
 			if (llvm::Error error = parseOneFile(content, fileName, fileToLoad))
 			{
 				// if we fail to parse the first file, keep parsing the othe imported
@@ -147,6 +152,7 @@ namespace rlc
 		mlir::MLIRContext* context;
 		mlir::ModuleOp module;
 		llvm::SmallVector<std::string, 4> includedFiles;
+		bool keepComments;
 	};
 
 }	 // namespace rlc

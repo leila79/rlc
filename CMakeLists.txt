@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.18)
 
 ##############################
 ###        googletest      ###
@@ -65,8 +65,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-unused-parameter -Wno-comment -Wno-unused-function -Wno-deprecated-this-capture")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-implicit-int-float-conversion -Wno-reserved-macro-identifier -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-old-style-cast -Wno-sign-conversion -Wshadow-field-in-constructor -Wno-language-extension-token -Wno-deprecated-declarations -Wno-invalid-offsetof")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -Wno-unused-parameter -Wno-comment -Wno-unused-function -Wno-deprecated-this-capture -Wno-dangling-assignment-gsl")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-implicit-int-float-conversion -Wno-reserved-macro-identifier -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-old-style-cast -Wno-sign-conversion -Wshadow-field-in-constructor -Wno-language-extension-token -Wno-deprecated-declarations -Wno-invalid-offsetof -Wno-unused-variable -Wno-unused-parameter -Wno-comment -Wno-unused-function -Wno-deprecated-this-capture -Wno-switch")
 
 set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
 set(EXEEXT ${CMAKE_EXECUTABLE_SUFFIX})
@@ -100,18 +100,12 @@ add_test(NAME pytest
 COMMAND ${Python3_EXECUTABLE} -m pytest ${CMAKE_CURRENT_SOURCE_DIR}/python
 )
 
-if (UNIX AND NOT APPLE)
 add_custom_target(pip_package
-    COMMAND rm -rf ${CMAKE_CURRENT_BINARY_DIR}/dist && ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/python/setup.py sdist bdist_wheel && cp -r ${CMAKE_SOURCE_DIR}/python/dist ${CMAKE_CURRENT_BINARY_DIR}/ && rm -r ${CMAKE_SOURCE_DIR}/python/dist ${CMAKE_SOURCE_DIR}/python/build
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/packetize.py --source-dir ${CMAKE_CURRENT_SOURCE_DIR}/python --binary-dir ${CMAKE_CURRENT_BINARY_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/python
     DEPENDS install)
-endif()
-if (APPLE)
-    add_custom_target(pip_package
-        COMMAND rm -rf ${CMAKE_CURRENT_BINARY_DIR}/dist && ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/python/setup.py sdist bdist_wheel --plat-name=macosx_11_0_arm64 && cp -r ${CMAKE_SOURCE_DIR}/python/dist ${CMAKE_CURRENT_BINARY_DIR}/ && rm -r ${CMAKE_SOURCE_DIR}/python/dist ${CMAKE_SOURCE_DIR}/python/build
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/python
-        DEPENDS install)
-endif()
+
+
 
 ##############################
 ###       STDLIBDOC        ###

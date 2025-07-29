@@ -29,10 +29,7 @@ namespace mlir::rlc
 		{
 			public:
 			MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ActionValueLivenessLattice);
-			explicit ActionValueLivenessLattice(mlir::ProgramPoint point)
-					: mlir::dataflow::AbstractDenseLattice(point)
-			{
-			}
+			using dataflow::AbstractDenseLattice::AbstractDenseLattice;
 
 			mlir::ChangeResult meet(
 					const mlir::dataflow::AbstractDenseLattice& val) override
@@ -101,6 +98,7 @@ namespace mlir::rlc
 			bool isAlive(mlir::Value val) { return content.contains(val); }
 
 			private:
+			mlir::ProgramPoint point;
 			llvm::DenseSet<mlir::Value> content;
 		};
 
@@ -154,7 +152,7 @@ namespace mlir::rlc
 				return toKill;
 			}
 
-			void visitOperation(
+			mlir::LogicalResult visitOperation(
 					mlir::Operation* op,
 					const ActionValueLivenessLattice& after,
 					ActionValueLivenessLattice* before) override
@@ -162,6 +160,7 @@ namespace mlir::rlc
 				propagateIfChanged(
 						before,
 						before->joinAndMark(after, getJustUsed(op), getJustDefined(op)));
+				return mlir::success();
 			}
 
 			void visitCallControlFlowTransfer(
@@ -214,8 +213,16 @@ namespace mlir::rlc
 			public:
 			bool isDeadAfter(mlir::Value val, mlir::Operation* op)
 			{
-				auto* lattice = op != nullptr ? getLattice(mlir::ProgramPoint(op))
-																			: getLattice(op->getBlock());
+				assert(op != nullptr);
+				// the precondition of action statements are evaluated after the
+				// suspension, but they get inserted in the before lattice because you
+				// cannot write if your output
+				if (mlir::isa<mlir::rlc::ActionStatement>(op))
+				{
+					auto* lattice = getLattice(LatticeAnchor(getProgramPointBefore(op)));
+					return not lattice->isAlive(val);
+				}
+				auto* lattice = getLattice(LatticeAnchor(getProgramPointAfter(op)));
 				return not lattice->isAlive(val);
 			}
 		};
