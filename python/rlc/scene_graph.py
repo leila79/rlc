@@ -17,7 +17,7 @@ class SceneNode:
     def add_child(self, child: 'SceneNode'):
         self.children.append(child)
 
-def detect_grid_dimensions(typ) -> Optional[Tuple[int, ...]]:
+def detect_array_dimensions(typ) -> Optional[Tuple[int, ...]]:
     """
     Recursively detect ctypes.Array grid dimensions.
     Works for nested arrays like Array[3][3], Array[2][3][4], etc.
@@ -36,44 +36,6 @@ def detect_grid_dimensions(typ) -> Optional[Tuple[int, ...]]:
         inner = inner._type_
     return tuple(dims)
 
-
-# def detect_grid_dimensions(typ) -> Optional[Tuple[int, int]]:
-#     """Pattern matching for grid-like arrays: Assume square if length is perfect square."""
-#     if not issubclass(typ, Array):
-#         return None
-    
-#     def total_inner_length(a: type) -> int:
-#         """Return the total product of lengths for nested Array types."""
-#         if not issubclass(a, Array):
-#             return 1
-#         inner_len = a._length_
-#         # if inner element is itself an Array multiply by its total inner length
-#         if issubclass(a._type_, Array):
-#             return inner_len * total_inner_length(a._type_)
-#         return inner_len
-    
-#     # Case 1: nested array: Array[rows][...]
-#     if issubclass(typ._type_, Array):
-#         rows = typ._length_
-#         # If the immediate inner is an Array, compute its total flattened length
-#         cols = total_inner_length(typ._type_)
-#         return (rows, cols)
-
-#     # Case 2: flat 1D array: try to see if it forms a square grid
-#     length = typ._length_
-#     sqrt_len = int(math.sqrt(length))
-#     if sqrt_len * sqrt_len == length:
-#         return (sqrt_len, sqrt_len)
-
-#     # length = typ._length_
-#     # sqrt_len = int(math.sqrt(length))
-#     # if sqrt_len * sqrt_len == length:
-#     #     return (sqrt_len, sqrt_len)  
-#     # if issubclass(typ._type_, Array):
-#     #     inner_dims = detect_grid_dimensions(typ._type_)
-#     #     if inner_dims:
-#     #         return (length, inner_dims[0]) 
-#     return None  # Fallback to linear
 
 def state_to_scene(state, typ, context: dict = None) -> SceneNode:
     """Recursively transform game state into a generic, reusable scene graph.
@@ -99,40 +61,14 @@ def state_to_scene(state, typ, context: dict = None) -> SceneNode:
             node.add_child(child)
         return node
     elif issubclass(typ, Array):  # Array
-        grid_dims = detect_grid_dimensions(typ)
+        array_dimensions = detect_array_dimensions(typ)
         node = SceneNode("array", label=typ.__name__, meta={
             "context": context.get("array_meta", {}),
-            "dims": grid_dims,
-            "rows": grid_dims[0] if grid_dims else None,
-            "cols": grid_dims[1] if grid_dims and len(grid_dims) > 1 else None,
-        })
-        # grid_dims = detect_grid_dimensions(typ)
-        if grid_dims:
-            if len(grid_dims) == 1:
-                # 1D array
-                for i in range(typ._length_):
-                    child_context = {**context, "index": i}
-                    child = state_to_scene(state[i], typ._type_, child_context)
-                    node.add_child(child)
-            else:
-                rows = grid_dims[0]
-                cols = grid_dims[1] if len(grid_dims) > 1 else 1
-                for i in range(typ._length_):
-                    row, col = divmod(i, cols)
-                    child_node = SceneNode("cell", value=state[i], meta={
-                        "row": row, 
-                        "col": col, 
-                    })
-                    child_context = {**context, "index": i}
-                    child_context["index"] = i
-                    child_node.add_child(state_to_scene(state[i], typ._type_, child_context))
-                    node.add_child(child_node)
-        else:
-            for i in range(typ._length_):
-                child_context = context.copy()
-                child_context["index"] = i
-                child = state_to_scene(state[i], typ._type_, child_context)
-                node.add_child(child)
+            "dims": array_dimensions})
+        for i in range(typ._length_):
+            child_context = {**context, "index": i}
+            child = state_to_scene(state[i], typ._type_, child_context)
+            node.add_child(child)
         return node
     if typ == c_bool:
         print("primitive state of bool --> ", state)
@@ -156,7 +92,7 @@ def state_to_scene(state, typ, context: dict = None) -> SceneNode:
 def build_grid_layout(node: SceneNode, state_path: Tuple[str, ...]) -> Layout:
     """
     Build a layout for multi-dimensional arrays.
-    - Handles 1D, 2D, and nested grids (e.g., 3×3, 2×3×4).
+    - Handles 1D, 2D, and nested grids (e.g., 3*3, 2*3*4).
     """
     dims = node.meta.get("dims") or (
         [node.meta.get("rows"), node.meta.get("cols")]
@@ -247,8 +183,8 @@ def build_grid_layout(node: SceneNode, state_path: Tuple[str, ...]) -> Layout:
 def scene_to_layout(node: SceneNode, state_path: Tuple[str, ...] = ()) -> Layout:
     """Transform a generic scene graph into a concrete layout for rendering."""
     if node.kind == "array":
-        grid_dims = (node.meta.get("rows", 0), node.meta.get("cols", 0))
-        if grid_dims[0] and grid_dims[0] > 0 and grid_dims[1] and grid_dims[1] > 0:
+        array_dimensions = node.meta.get("dims", tuple())
+        if len(array_dimensions) == 2:
             print('found grid')
             return build_grid_layout(node, state_path)
         
