@@ -8,6 +8,7 @@ from ctypes import c_long, Array, c_bool
 
 class SceneNode:
     def __init__(self, kind: str, children: Optional[List['SceneNode']] = None, value: Any = None, label: str = "", meta: dict = None):
+        # TODO: find the correct attributes of scene node
         self.kind = kind          
         self.children = children if children is not None else []
         self.value = value                 
@@ -70,21 +71,13 @@ def state_to_scene(state, typ, context: dict = None) -> SceneNode:
             node.add_child(child)
         return node
     if typ == c_bool:
-        print("primitive state of bool --> ", state)
         node = SceneNode(kind="value", value="True" if state else "False", meta={"context": context})
-        print("primitive state --> ", node.value)
         return node
     if typ == c_long:
-        print("primitive state of long --> ", state)
         node = SceneNode(kind="value", value=str(state), meta={"context": context})
-        print("primitive state --> ", node.value)
         return node
     else:  # Primitive (int, bool, str)
-        print("primitive state --> ", state)
         node = SceneNode(kind="value", value=state, meta={"context": context.get("value_meta", {})})
-        if context.get("editable", False):
-            node.meta["editable"] = True  # Flag for editing interfaces
-        print("primitive state --> ", node.value)
         return node
     
 
@@ -103,9 +96,9 @@ def array_to_layout(node: SceneNode, state_path: Tuple[str, ...] = (), direction
 def scene_to_layout(node: SceneNode, state_path: Tuple[str, ...] = ()) -> Layout:
     """Transform a generic scene graph into a concrete layout for rendering."""
     if node.kind == "array":
-        return array_to_layout(node, state_path, Direction.ROW)
+        return array_to_layout(node, state_path, Direction.COLUMN)
     elif node.kind == "struct":
-        layout = Layout(sizing=(FIT(), FIT()), direction=Direction.ROW, child_gap=5, border=2, color="lightgray")
+        layout = Layout(sizing=(FIT(), FIT()), direction=Direction.COLUMN, child_gap=5, border=2, color="lightgray")
         for i, child in enumerate(node.children):  # Process label and value pairs
             layout.add_child(scene_to_layout(child, state_path + (i, )))
         return layout
