@@ -61,15 +61,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with load_program_from_args(args, optimize=True) as program:
         # derive a save path from the input file name
-        source_file = args.source_file 
+        source_file = args.source_file
         base_name = os.path.splitext(os.path.basename(source_file))[0] if source_file else "renderer"
-        save_path = os.path.join("./logs", f"{base_name}.json")
+        save_path = os.path.join("./logs", f"{base_name}.yaml")
 
         # dump_rlc_type(program.module.Game)
 
         config = {}
 
         renderer = RendererFactory.from_rlc_type(program.module.Game, config)
-        renderer.print_tree()
+        # print(renderer)
         save_renderer(renderer, save_path)
         print(f"[saved] renderer -> {save_path}")

@@ -5,7 +5,7 @@ import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
 from rlc.serialization.renderer_serializer import load_renderer
-from test.event_dispatcher import EventDispatcher
+from rlc.renderer.config_parser import  action, ACTION_REGISTRY
 
   
 def any_child_dirty(layout):
@@ -51,25 +51,34 @@ def relayout(screen, backend, layout, logger, compute_times, layout_times, scrol
     layout.layout(margin + scroll["x"], margin + scroll["y"], logger=logger)
     _record_timing(layout_times, time.perf_counter() - t0)
 
-
+def play_random_turn(elapsed_time, state, renderer, layout):
+        actions = state.legal_actions or []
+        if not actions:
+            return False
+        action = random.choice(actions)
+        print(action)
+        state.step(action)
+        renderer.update(layout, state.state, elapsed_time)
+        layout.is_dirty = True
+        return True
 
 if __name__ == "__main__":
     parser = make_rlc_argparse("game_display", description="Display game state")
     args = parser.parse_args()
     with load_program_from_args(args, optimize=True) as program:
 
-        pygame.init()  
+        pygame.init()
         screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
         screen.fill("white")
         clock = pygame.time.Clock()
         backend = PygameRenderer(screen)
         running = True
-        source_file = args.source_file 
+        source_file = args.source_file
         base_name = os.path.splitext(os.path.basename(source_file))[0] if source_file else "renderer"
-        load_path = os.path.join("./logs", f"{base_name}.json")
+        load_path = os.path.join("./logs", f"{base_name}.yaml")
 
         renderer = load_renderer(load_path)
-        renderer.print_tree()
+        print(renderer)
         iterations = 1
         current = 0
         STEP_DELAY = 2  # seconds per state
@@ -88,7 +97,8 @@ if __name__ == "__main__":
             else:
                 state = program.start()
             layout = renderer(state.state)
-            layout.propagate_interactive()
+            layout.print_path()
+            # layout.propagate_interactive()
             # layout.print_layout()
             actions = state.legal_actions
             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
@@ -96,10 +106,6 @@ if __name__ == "__main__":
             if logger: 
                 logger.record_final_tree(root=layout)
                 # print(logger.to_text_tree(layout))
-
-            handlers = {}
-            selection = None
-            dispatcher = EventDispatcher(state, renderer, layout, program, selection, handlers)
         
             last_update = time.time()
             accumulated_time = 0.0
@@ -117,6 +123,22 @@ if __name__ == "__main__":
                         scroll["y"] += event.y * 30
                         scroll["x"] += event.x * 30
                         relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        mx, my = pygame.mouse.get_pos()
+                        target = layout.find_target(mx, my)
+                        # print(target.render_path,  hasattr(target, "on_click"))
+                        
+                        if target and hasattr(target, "on_click"):
+                            meta = target.on_click
+                            if meta:
+                                handler = meta["handler"]
+                                args = meta["args"]
+                                print(handler, ACTION_REGISTRY)
+                                changed = ACTION_REGISTRY[handler](state, **args)
+                                if changed:
+                                    layout.is_dirty = True
+                                if layout.is_dirty or any_child_dirty(layout):
+                                    relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
 
                 elapsed = clock.tick(60) / 1000.0
                 accumulated_time += elapsed
@@ -124,8 +146,10 @@ if __name__ == "__main__":
                 if accumulated_time >= STEP_DELAY:
                     accumulated_time = 0.0
                     if not state.is_done():
-                        if dispatcher.play_random_turn(elapsed_time=elapsed):
+                        if play_random_turn(elapsed, state, renderer, layout):
                             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+                        else:
+                            pass
                     else:
                         print("Game done.")
                         break
@@ -135,5 +159,6 @@ if __name__ == "__main__":
             current += 1
             print_timings(f"iteration {current}", compute_times, layout_times)
             time.sleep(1.0)
+        
         
     pygame.quit()
