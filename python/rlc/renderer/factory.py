@@ -45,7 +45,7 @@ class RendererFactory:
                 if child_renderer is None:
                     continue
                 fields[fname] = child_renderer
-            renderer = renderer_cls(rlc_type.__name__, fields, custom_conf)
+            renderer = renderer_cls(rlc_type.__name__, fields)
             cls._cache[rlc_type] = renderer
             return renderer
 
@@ -54,15 +54,16 @@ class RendererFactory:
             renderer_cls = custom_renderer_class or ContainerRenderer
             return _container_renderer(renderer_cls)
             
-        if "BoundedVector" in name:
+        if "BoundedVector" in name and hasattr(rlc_type, "_fields_"):
             renderer_cls = custom_renderer_class or BoundedVectorRenderer
             field = None
             for _, ftype in getattr(rlc_type, "_fields_", []):
+
                 candidate = cls.from_rlc_type(ftype, config)
                 if candidate is not None:
                     field = candidate
                     break
-            renderer = renderer_cls(rlc_type.__name__, field, custom_conf)
+            renderer = renderer_cls(rlc_type.__name__, field)
             cls._cache[rlc_type] = renderer
             return renderer
 
@@ -74,7 +75,7 @@ class RendererFactory:
                 renderer_cls = VectorRenderer
             element = cls._extract_vector_element(rlc_type)
             element_renderer = cls.from_rlc_type(element, config)
-            renderer = renderer_cls(rlc_type.__name__, element_renderer, custom_conf)
+            renderer = renderer_cls(rlc_type.__name__, element_renderer)
             cls._cache[rlc_type] = renderer
             return renderer
 
@@ -88,8 +89,7 @@ class RendererFactory:
             renderer = renderer_cls(
                 rlc_type.__name__,
                 rlc_type._length_,
-                element_renderer,
-                custom_conf
+                element_renderer
             )
             cls._cache[rlc_type] = renderer
             return renderer
@@ -100,7 +100,7 @@ class RendererFactory:
                 renderer_cls = custom_renderer_class
             else:
                 renderer_cls = BoundedIntRenderer
-            renderer = renderer_cls(rlc_type.__name__, custom_conf)
+            renderer = renderer_cls(rlc_type.__name__)
             cls._cache[rlc_type] = renderer
             return renderer
 
@@ -110,7 +110,7 @@ class RendererFactory:
                 renderer_cls = custom_renderer_class
             else:
                 renderer_cls = PrimitiveRenderer
-            renderer = renderer_cls(rlc_type.__name__, custom_conf)
+            renderer = renderer_cls(rlc_type.__name__)
             cls._cache[rlc_type] = renderer
             return renderer
 
@@ -120,7 +120,7 @@ class RendererFactory:
             return _container_renderer(renderer_cls)
 
         # 7. Fallback: treat as primitive
-        renderer = PrimitiveRenderer(rlc_type.__name__, custom_conf)
+        renderer = PrimitiveRenderer(rlc_type.__name__)
         cls._cache[rlc_type] = renderer
         return renderer
 

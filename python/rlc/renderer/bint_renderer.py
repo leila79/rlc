@@ -2,13 +2,14 @@ from rlc.text import Text
 from rlc.renderer.renderable import Renderable, register_renderer
 from rlc.layout import  Direction, FIT, Padding
 from dataclasses import dataclass
+from .config_parser import apply_config
 
 @register_renderer
 class BoundedIntRenderer(Renderable):
     """
     Renderer for bounded integer structs like BIntT1T10T.
     """
-    def build_layout(self, obj, direction=Direction.COLUMN,
+    def build_layout(self, obj, parent_path, direction=Direction.COLUMN,
                      color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
         # Extract the 'value' field (the inner c_long)
         value = getattr(obj, "value", None)
@@ -19,6 +20,8 @@ class BoundedIntRenderer(Renderable):
             "type": "bounded_int",
             "obj": obj
         }
+        layout.render_path = parent_path
+        apply_config(layout)
         return layout
 
     def update(self, layout, obj, elapsed_time=0.0):

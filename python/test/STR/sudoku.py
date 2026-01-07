@@ -4,71 +4,46 @@ from rlc.renderer.factory import RendererFactory
 import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
-from test.event_dispatcher import EventDispatcher
 from simulate import new_timing_bucket, relayout, any_child_dirty, print_timings
+from rlc.renderer.config_parser import action, ACTION_REGISTRY
 
-def sudoku_select_cell(node, selection, bindings, state, program, elapsed_time):
-    selected_node = selection.set_focus(node)
-    return selected_node.focused
-
-def sudoku_key_press(key, node, state, program):
-    # key is pygame keycode, convert to digit
-    if pygame.K_1 <= key <= pygame.K_9:
-        value = key - pygame.K_0  # convert keycode to digit
-    else:
-        return False
-
-    # Now apply the move
-    row = None
-    col = None
-
-    b = node.binding
-    while b:
-        if b['type'] == 'vector_item':
-            if col is None:
-                col = b['index']
-            elif row is None:
-                row = b['index']
-        b = b.get("parent")
-
-    if row is None or col is None:
-        return False
-
-    mod = program.module if program else getattr(state, "program", None).module
-    pos_r = mod.make_pos(row)
-    pos_c = mod.make_pos(col)
-    num = mod.make_num(value)
-    if hasattr(state.state, "can_place") and not state.state.can_place(num, pos_r, pos_c):
-        return False
-    state.state.place(num, pos_r, pos_c)
+@action("select_cell")
+def select_cell(program, state, x, y):
+    """Handler for clicking a cell - just returns True to indicate success"""
+    print(f"Selected cell at ({x}, {y})")
     return True
 
-class SelectionManager:
-    def __init__(self):
-        self.focused_node = None
+@action("input_value")
+def input_value(program, state, x, y, value):
+    """Handler for keyboard input on a focused cell"""
+    # Convert pygame keycode to digit
+    if pygame.K_1 <= value <= pygame.K_9:
+        digit = value - pygame.K_0
+    else:
+        print(f"Invalid key: {value}")
+        return False
 
-    def set_focus(self, node):
-        if self.focused_node is not None:
-            self.focused_node.focused = False
+    print(f"Input {digit} at cell ({x}, {y})")
 
-        self.focused_node = node
-        if node:
-            node.focused = True
+    # Apply the move
+    mod = program.module
+    pos_r = mod.make_pos(x)
+    pos_c = mod.make_pos(y)
+    num = mod.make_num(digit)
 
-        return node
+    if hasattr(state.state, "can_place") and not state.state.can_place(num, pos_r, pos_c):
+        print(f"Cannot place {digit} at ({x}, {y})")
+        return False
+
+    state.state.place(num, pos_r, pos_c)
+    return True
 
 if __name__ == "__main__":
     parser = make_rlc_argparse("game_display", description="Display game state")
     args = parser.parse_args()
     with load_program_from_args(args, optimize=True) as program:
-        
 
-        config = {
-            'c_long':{
-                'interactive' : True,
-                'on_click' : 'sudoku_select_cell'
-            }
-        }
+        config = {}
         renderer = RendererFactory.from_rlc_type(program.module.Game, config)
 
         pygame.init()  
@@ -78,7 +53,7 @@ if __name__ == "__main__":
         backend = PygameRenderer(screen)
         running = True
         
-        renderer.print_tree()
+        # renderer.print_tree()
         iterations = 1
         current = 0
         STEP_DELAY = 0.9  # seconds per state
@@ -97,16 +72,13 @@ if __name__ == "__main__":
             else:
                 state = program.start()
             layout = renderer(state.state)
-            layout.propagate_interactive()
+            # layout.propagate_interactive()
+            # layout.print_path()
             actions = state.legal_actions
             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
 
-            if logger: 
+            if logger:
                 logger.record_final_tree(root=layout)
-
-            handlers = {"sudoku_select_cell" : sudoku_select_cell}
-            selection = SelectionManager()
-            dispatcher = EventDispatcher(state, renderer, layout, program, selection, handlers)
         
             last_update = time.time()
             accumulated_time = 0.0
@@ -127,18 +99,57 @@ if __name__ == "__main__":
                     if event.type == pygame.MOUSEBUTTONDOWN:
                         mx, my = pygame.mouse.get_pos()
                         target = layout.find_target(mx, my)
-                        if target:
-                            changed = dispatcher.handle_click(target, elapsed_time=elapsed)
+
+                        if target and hasattr(target, "on_click"):
+                            # Execute click handler
+                            meta = target.on_click
+                            handler = meta["handler"]
+                            args = meta["args"]
+                            changed = ACTION_REGISTRY[handler](program, state, **args)
+
+                            # Auto-focus the clicked cell
+                            layout.set_focus(target)
+
                             if changed:
                                 layout.is_dirty = True
                             if layout.is_dirty or any_child_dirty(layout):
                                 relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+                        else:
+                            # Clicking elsewhere unfocuses
+                            layout.set_focus(None)
+
                     if event.type == pygame.KEYDOWN:
-                        changed = dispatcher.handle_key(event.key, handler=sudoku_key_press)
-                        if changed:
-                            layout.is_dirty = True
-                        if layout.is_dirty or any_child_dirty(layout):
-                            relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+                        # Find the focused node
+                        focused = layout.find_focused_node()
+
+                        if focused:
+                            print(f"Focused node: render_path={focused.render_path}, has on_key={hasattr(focused, 'on_key')}, on_key={getattr(focused, 'on_key', None)}")
+
+                        if focused and hasattr(focused, "on_key") and focused.on_key is not None:
+                            # Execute keyboard handler with event parameters
+                            meta = focused.on_key
+                            handler = meta["handler"]
+                            args = meta["args"]
+                            params = meta["params"]
+
+                            # Build event_params dict with the key value
+                            event_params = {}
+                            for param_name in params:
+                                if param_name == "value":
+                                    event_params["value"] = event.key
+                                # Add more parameter mappings here if needed
+
+                            # Merge args with event_params
+                            all_args = {**args, **event_params}
+                            changed = ACTION_REGISTRY[handler](program, state, **all_args)
+                            print(changed)
+
+                            if changed:
+                                renderer.update(layout, state.state, elapsed)
+                                layout.is_dirty = True
+                            if layout.is_dirty or any_child_dirty(layout):
+                                print("relayout")
+                                relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
 
                 elapsed = clock.tick(60) / 1000.0
                 accumulated_time += elapsed

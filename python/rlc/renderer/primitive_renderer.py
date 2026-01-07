@@ -5,11 +5,12 @@ from rlc.text import Text
 from rlc.layout import  Direction, FIT, Padding
 import time
 from dataclasses import dataclass
+from.config_parser import apply_config
 
 @register_renderer
 @dataclass
 class PrimitiveRenderer(Renderable):
-    def build_layout(self, obj, direction=Direction.COLUMN, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
+    def build_layout(self, obj, parent_path, direction=Direction.COLUMN, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
         if self.rlc_type_name == "c_bool":
             text = "True" if obj else "False"
         if self.rlc_type_name == "c_long":
@@ -22,6 +23,8 @@ class PrimitiveRenderer(Renderable):
             "type": "primitive",
             "value": obj
         }
+        layout.render_path = parent_path
+        apply_config(layout)
 
         return layout
 

@@ -1,13 +1,14 @@
 from rlc.renderer.renderable import Renderable, register_renderer
 from rlc.layout import Layout, Direction, FIT, Padding
 from dataclasses import dataclass
+from .config_parser import apply_config
 
 @register_renderer
 @dataclass
 class VectorRenderer(Renderable):
     element_renderer: Renderable
 
-    def build_layout(self, obj, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5)):
+    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5)):
         data_ptr = getattr(obj, "_data", None)
         size = getattr(obj, "_size", None)
 
@@ -23,6 +24,8 @@ class VectorRenderer(Renderable):
             color=color
         )
         layout.binding = {"type": "vector"}
+        layout.render_path = parent_path
+        apply_config(layout)
         if not data_ptr or size <= 0:
             return layout
 
@@ -42,12 +45,13 @@ class VectorRenderer(Renderable):
             child_layout = self.element_renderer(
                 item,
                 parent_binding=item_binding,
+                parent_path=parent_path + [i],
                 direction=next_dir,
                 color="lightgray",
                 sizing=(FIT(), FIT()),
                 logger=logger,
             )
-
+            apply_config(child_layout)
             child_layout.binding = item_binding
             layout.add_child(child_layout)
 

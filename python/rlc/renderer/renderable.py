@@ -61,6 +61,7 @@ class Renderable(ABC):
     Base abstract renderer type.
     Each subclasss knows how to convert its types object into a Layout tree.
     """
+    rlc_type_name: str
 
     def make_layout(self, direction=Direction.COLUMN, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2), border=3, child_gap=5) -> Layout:
         layout = Layout(sizing=sizing, direction=direction, color=color, padding=padding, border=border, child_gap=child_gap)
@@ -86,8 +87,14 @@ class Renderable(ABC):
         """
         pass
 
-    def __call__(self, obj, parent_binding=None, **kwds):
-        layout = self.build_layout(obj=obj, **kwds)
+    def __call__(self, obj, parent_binding=None, parent_path=None, **kwds):
+
+        if parent_path is None:
+            current_path = [self.rlc_type_name]
+        else:
+            current_path = list(parent_path)
+
+        layout = self.build_layout(obj=obj, parent_path=current_path, **kwds)
 
         # If build_layout didn't set binding, ensure we add it
         if layout.binding is None:

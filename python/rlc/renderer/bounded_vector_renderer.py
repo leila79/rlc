@@ -11,7 +11,7 @@ class BoundedVectorRenderer(Renderable):
     """
     vector_renderer: Renderable
 
-    def build_layout(self, obj, direction=Direction.COLUMN,
+    def build_layout(self, obj, parent_path, direction=Direction.COLUMN,
                      color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
         value = getattr(obj, "_data", None)
         value_layout = self.vector_renderer(value)

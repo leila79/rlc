@@ -1,6 +1,7 @@
 from rlc.renderer.renderable import Renderable, register_renderer
 from rlc.layout import Layout, Direction, FIT, Padding
 from dataclasses import dataclass
+from .config_parser import apply_config
 
 @register_renderer
 @dataclass
@@ -8,9 +9,12 @@ class ArrayRenderer(Renderable):
     length: int
     element_renderer: Renderable
 
-    def build_layout(self, obj, direction=Direction.COLUMN, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
+    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
         layout = self.make_layout(sizing=sizing, direction=direction, color=color, padding=padding, border=3, child_gap=5)
         layout.binding = {"type": "array"}
+        # if layout.render_path is None:
+        layout.render_path = parent_path
+        apply_config(layout)
         color = 'lightgray'
         if self.element_renderer is not None:
             for i in range(self.length):
@@ -28,6 +32,7 @@ class ArrayRenderer(Renderable):
                 child = self.element_renderer(
                     item,
                     parent_binding=item_binding,
+                    parent_path= parent_path + [i],
                     direction=next_dir,
                     logger=logger,
                     color=next_color,
@@ -35,6 +40,7 @@ class ArrayRenderer(Renderable):
                     padding=Padding(2,2,2,2),
                 )
                 child.binding = item_binding
+                apply_config(child)
                 layout.add_child(child)
         return layout
 

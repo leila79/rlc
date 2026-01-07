@@ -40,16 +40,17 @@ ZERO_PADDING = Padding()
 
 class Layout:
     def __init__(
-            self, 
-            sizing : Tuple[SizePolicy, SizePolicy] = (FIT(), FIT()), 
+            self,
+            sizing : Tuple[SizePolicy, SizePolicy] = (FIT(), FIT()),
             padding : Optional[Padding] = None,
             direction : Direction = Direction.ROW,
             border: float = 0,
             child_gap : float = 0,
-            color: Optional[str] = None, 
-            interactive=False, 
-            on_click=None, 
+            color: Optional[str] = None,
+            interactive=False,
+            on_click=None,
             on_hover=None,
+            on_key=None,
             userdata=None):
         self.sizing : Tuple[SizePolicy, SizePolicy] = sizing
         self.direction : Direction = direction
@@ -64,10 +65,12 @@ class Layout:
         self.interactive = interactive
         self.on_click = on_click
         self.on_hover = on_hover
+        self.on_key = on_key
         self.userdata = userdata
         self._children_sized = False
-        self.binding = None    
-        self.focused = False 
+        self.binding = None
+        self.render_path = None
+        self.focused = False
         self.width = sizing[0].value if sizing[0].size_policy == SizePolicies.FIXED else 0
         self.height = sizing[1].value if sizing[1].size_policy == SizePolicies.FIXED else 0    
          
@@ -285,6 +288,12 @@ class Layout:
         for child in self.children:
             child.print_layout(depth + 1)
 
+    def print_path(self, depth : int = 0):
+        indent = "  " * depth
+        print(f"{indent}{self.__class__.__name__}: path : {self.render_path}, on_click : {self.on_click}")
+        for child in self.children:
+            child.print_path(depth + 1)
+
     # Event Handling
     def hit_test(self, x, y):
         return (self.x <= x <= self.x + self.width and
@@ -296,8 +305,7 @@ class Layout:
             target = child.find_target(x, y)
             if target:
                 return target
-        # print(self.interactive)
-        if self.interactive and self.hit_test(x, y):
+        if  self.hit_test(x, y):
             return self
 
         return None
@@ -315,3 +323,37 @@ class Layout:
             self.interactive = True
             self.on_click = child_on_click
         return (self.interactive, self.on_click)
+
+    def find_focused_node(self):
+        """
+        Traverse the layout tree and find the node with focused=True.
+
+        Returns:
+            The focused layout node, or None if no node is focused
+        """
+        if self.focused:
+            return self
+
+        for child in self.children:
+            result = child.find_focused_node()
+            if result is not None:
+                return result
+
+        return None
+
+    def clear_all_focus(self):
+        """Recursively clear the focused flag on all layout nodes."""
+        self.focused = False
+        for child in self.children:
+            child.clear_all_focus()
+
+    def set_focus(self, target_node):
+        """
+        Clear all focus in the tree, then set focus on the target node.
+
+        Args:
+            target_node: The specific node to focus (or None to clear all focus)
+        """
+        self.clear_all_focus()
+        if target_node is not None:
+            target_node.focused = True
