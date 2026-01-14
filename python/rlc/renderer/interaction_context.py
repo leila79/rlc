@@ -23,7 +23,7 @@ class InteractionMapping:
     handler_name: str
     index_vars: List[str]  # e.g., ["x", "y"]
     param_vars: List[str]  # e.g., ["value"]
-    rlc_path: List[str]  # The original RLC type path this was matched against
+    path: List[str]  
 
 
 @dataclass
@@ -91,7 +91,7 @@ class InteractionContext:
                     handler_name=handler_name,
                     index_vars=parsed_path.index_vars,
                     param_vars=parsed_path.param_vars,
-                    rlc_path=rlc_path.copy()
+                    path=rlc_path.copy()
                 )
                 mappings.append(mapping)
 

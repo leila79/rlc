@@ -7,7 +7,7 @@ from rlc import LayoutLogConfig, LayoutLogger
 from simulate import new_timing_bucket, relayout, any_child_dirty, print_timings
 import os
 from rlc.renderer.config_parser import action, ACTION_REGISTRY
-from rlc.serialization.renderer_serializer import load_renderer
+from rlc.serialization.renderer_serializer import load_renderer, save_renderer
 from rlc.renderer.interaction_context import InteractionContext
 
 @action("select_cell")
@@ -46,6 +46,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with load_program_from_args(args, optimize=True) as program:
 
+        source_file = args.source_file
+        base_name = os.path.splitext(os.path.basename(source_file))[0] if source_file else "renderer"
+        save_path = os.path.join("./logs", f"{base_name}.yaml")
+
         # Load interaction context from config file
         interaction_ctx = InteractionContext.from_config_file()
 
@@ -56,6 +60,9 @@ if __name__ == "__main__":
             interaction_ctx=interaction_ctx,
             rlc_path=['Game']
         )
+
+        save_renderer(renderer, save_path)
+        print(f"[saved] renderer -> {save_path}")
 
         # source_file = args.source_file
         # base_name = os.path.splitext(os.path.basename(source_file))[0] if source_file else "renderer"

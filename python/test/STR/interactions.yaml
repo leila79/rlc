@@ -1,0 +1,13 @@
+# Interaction configuration file
+# Format: "path/to/element/event_name": "handler_function_name"
+
+# Sudoku interactions
+"Game/board/slots/$x/$y/on_click": "select_cell"
+"Game/board/slots/$x/$y/on_key/$value": "input_value"
+
+# Tic-tac-toe interactions
+# "Game/board/slots/$x/$y/on_click": "mark_cell"
+
+# Blackjack interactions
+# "Game/hit_button/hit/on_click": "hit"
+# "Game/stand_button/stand/on_click": "stand"

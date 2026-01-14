@@ -77,14 +77,14 @@ def test_interaction_mappings():
             handler_name="test_handler",
             index_vars=["x", "y"],
             param_vars=[],
-            rlc_path=['Game', 'board', 'slots', '$i', '$i']
+            path=['Game', 'board', 'slots', '$i', '$i']
         ),
         InteractionMapping(
             event_type="on_key",
             handler_name="test_key_handler",
             index_vars=["row", "col"],
             param_vars=["value"],
-            rlc_path=['Game', 'board', 'slots', '$i', '$i']
+            path=['Game', 'board', 'slots', '$i', '$i']
         )
     ]
 
@@ -141,7 +141,7 @@ def test_interaction_mappings():
             handler_name="mark_cell",
             index_vars=["x", "y"],
             param_vars=[],
-            rlc_path=['Game', 'board', 'slots', '$i', '$i']
+            path=['Game', 'board', 'slots', '$i', '$i']
         )
     ]
 
