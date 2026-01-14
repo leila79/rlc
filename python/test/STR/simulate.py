@@ -98,8 +98,6 @@ if __name__ == "__main__":
                 state = program.start()
             layout = renderer(state.state)
             layout.print_path()
-            # layout.propagate_interactive()
-            # layout.print_layout()
             actions = state.legal_actions
             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
 

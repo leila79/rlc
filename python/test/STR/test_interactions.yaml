@@ -1,0 +1,12 @@
+# Test interaction configuration for different scenarios
+# This file tests:
+# 1. Arrays with BoundedInt (tic-tac-toe)
+# 2. Vectors with primitives (sudoku)
+# 3. Event parameters (on_key with $value)
+
+# Tic-tac-toe: Array[Array[BoundedInt]]
+"Game/board/slots/$x/$y/on_click": "mark_cell"
+
+# Sudoku: Vector<Vector<Int>> with both click and key events
+"Game/board/slots/$row/$col/on_click": "select_cell"
+"Game/board/slots/$row/$col/on_key/$value": "input_value"

@@ -5,7 +5,10 @@ import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
 from simulate import new_timing_bucket, relayout, any_child_dirty, print_timings
+import os
 from rlc.renderer.config_parser import action, ACTION_REGISTRY
+from rlc.serialization.renderer_serializer import load_renderer
+from rlc.renderer.interaction_context import InteractionContext
 
 @action("select_cell")
 def select_cell(program, state, x, y):
@@ -43,8 +46,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with load_program_from_args(args, optimize=True) as program:
 
+        # Load interaction context from config file
+        interaction_ctx = InteractionContext.from_config_file()
+
         config = {}
-        renderer = RendererFactory.from_rlc_type(program.module.Game, config)
+        renderer = RendererFactory.from_rlc_type(
+            program.module.Game,
+            config,
+            interaction_ctx=interaction_ctx,
+            rlc_path=['Game']
+        )
+
+        # source_file = args.source_file
+        # base_name = os.path.splitext(os.path.basename(source_file))[0] if source_file else "renderer"
+        # load_path = os.path.join("./logs", f"{base_name}.yaml")
+
+        # renderer = load_renderer(load_path)
 
         pygame.init()  
         screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
@@ -53,7 +70,6 @@ if __name__ == "__main__":
         backend = PygameRenderer(screen)
         running = True
         
-        # renderer.print_tree()
         iterations = 1
         current = 0
         STEP_DELAY = 0.9  # seconds per state
@@ -72,8 +88,6 @@ if __name__ == "__main__":
             else:
                 state = program.start()
             layout = renderer(state.state)
-            # layout.propagate_interactive()
-            # layout.print_path()
             actions = state.legal_actions
             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
 
@@ -103,9 +117,11 @@ if __name__ == "__main__":
                         if target and hasattr(target, "on_click"):
                             # Execute click handler
                             meta = target.on_click
-                            handler = meta["handler"]
-                            args = meta["args"]
-                            changed = ACTION_REGISTRY[handler](program, state, **args)
+                            changed = False
+                            if meta:
+                                handler = meta["handler"]
+                                args = meta["args"]
+                                changed = ACTION_REGISTRY[handler](program, state, **args)
 
                             # Auto-focus the clicked cell
                             layout.set_focus(target)

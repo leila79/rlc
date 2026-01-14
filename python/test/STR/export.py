@@ -5,9 +5,7 @@ from typing import Dict
 from ctypes import c_long, Array, c_bool
 from rlc.renderer.factory import RendererFactory
 from rlc.serialization.renderer_serializer import save_renderer
-from test.red_board_renderer import RedBoard
-from test.tic_tac_toe_board import TicTacToeBoardRenderer
-from rlc.layout import  Direction
+from rlc.renderer.interaction_context import InteractionContext
 import os
 
 
@@ -67,9 +65,20 @@ if __name__ == "__main__":
 
         # dump_rlc_type(program.module.Game)
 
-        config = {}
+        # Load interaction config at compile-time
+        interaction_ctx = InteractionContext.from_config_file()
 
-        renderer = RendererFactory.from_rlc_type(program.module.Game, config)
-        # print(renderer)
+        config = {}  # Custom renderer overrides (e.g., {Board: RedBoard})
+
+        # Build renderer tree with interaction mappings
+        # Start with rlc_path=['Game'] so the root type name is in the path
+        renderer = RendererFactory.from_rlc_type(
+            program.module.Game,
+            config,
+            interaction_ctx=interaction_ctx,
+            rlc_path=['Game']
+        )
+
+        # Save renderer with interaction mappings to YAML
         save_renderer(renderer, save_path)
         print(f"[saved] renderer -> {save_path}")

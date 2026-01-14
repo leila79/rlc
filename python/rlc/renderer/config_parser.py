@@ -286,7 +286,7 @@ def _load_config_file(config_path: Optional[str] = None) -> dict:
             return {}
 
     if not os.path.exists(config_path):
-        print(f"Warning: Config file not found at {config_path}")
+        # Config file not found, return empty config
         return {}
 
     with open(config_path, 'r') as f:

@@ -11,8 +11,7 @@ import os
 import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
-from test.event_dispatcher import EventDispatcher
-from rlc.renderer.config_parser import  action, ACTION_REGISTRY
+from rlc.renderer.config_parser import ACTION_REGISTRY
 
 
   
@@ -150,8 +149,6 @@ if __name__ == "__main__":
                 state = program.start()
             layout = renderer(state.state)
             layout.print_path()
-            # layout.propagate_interactive()
-            # layout.print_layout()
             actions = state.legal_actions
             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
 

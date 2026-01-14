@@ -12,9 +12,21 @@ class BoundedVectorRenderer(Renderable):
     vector_renderer: Renderable
 
     def build_layout(self, obj, parent_path, direction=Direction.COLUMN,
-                     color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
+                     color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2), index_bindings=None):
+        if index_bindings is None:
+            index_bindings = {}
+
         value = getattr(obj, "_data", None)
-        value_layout = self.vector_renderer(value)
+        value_layout = self.vector_renderer(
+            value,
+            parent_path=parent_path,
+            direction=direction,
+            color=color,
+            sizing=sizing,
+            logger=logger,
+            padding=padding,
+            index_bindings=index_bindings
+        )
         return value_layout
 
     def update(self, layout, obj, elapsed_time=0.0):

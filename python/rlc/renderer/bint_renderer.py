@@ -2,7 +2,6 @@ from rlc.text import Text
 from rlc.renderer.renderable import Renderable, register_renderer
 from rlc.layout import  Direction, FIT, Padding
 from dataclasses import dataclass
-from .config_parser import apply_config
 
 @register_renderer
 class BoundedIntRenderer(Renderable):
@@ -10,18 +9,20 @@ class BoundedIntRenderer(Renderable):
     Renderer for bounded integer structs like BIntT1T10T.
     """
     def build_layout(self, obj, parent_path, direction=Direction.COLUMN,
-                     color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2)):
+                     color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2), index_bindings=None):
+        if index_bindings is None:
+            index_bindings = {}
+
         # Extract the 'value' field (the inner c_long)
         value = getattr(obj, "value", None)
         val_str = str(value if isinstance(value, int) else getattr(value, "value", value))
 
         layout = self.make_text(val_str, "Arial", 16, "black")
-        layout.binding = {
-            "type": "bounded_int",
-            "obj": obj
-        }
         layout.render_path = parent_path
-        apply_config(layout)
+
+        # Apply pre-computed interactions with index bindings
+        self._apply_interaction_mappings(layout, index_bindings)
+
         return layout
 
     def update(self, layout, obj, elapsed_time=0.0):

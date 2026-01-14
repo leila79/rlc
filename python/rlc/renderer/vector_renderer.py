@@ -1,14 +1,16 @@
 from rlc.renderer.renderable import Renderable, register_renderer
 from rlc.layout import Layout, Direction, FIT, Padding
 from dataclasses import dataclass
-from .config_parser import apply_config
 
 @register_renderer
 @dataclass
 class VectorRenderer(Renderable):
     element_renderer: Renderable
 
-    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5)):
+    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5), index_bindings=None):
+        if index_bindings is None:
+            index_bindings = {}
+
         data_ptr = getattr(obj, "_data", None)
         size = getattr(obj, "_size", None)
 
@@ -23,9 +25,11 @@ class VectorRenderer(Renderable):
             padding=padding,
             color=color
         )
-        layout.binding = {"type": "vector"}
         layout.render_path = parent_path
-        apply_config(layout)
+
+        # Apply pre-computed interactions for the vector container
+        self._apply_interaction_mappings(layout, index_bindings)
+
         if not data_ptr or size <= 0:
             return layout
 
@@ -34,25 +38,37 @@ class VectorRenderer(Renderable):
             Direction.ROW if direction == Direction.COLUMN else Direction.COLUMN
         )
 
+        # Determine which index variable to bind at this vector level
+        # Search recursively for interaction mappings in child elements
+        index_var_name = None
+        deepest_mappings = self.element_renderer._get_deepest_interaction_mappings()
+        if deepest_mappings:
+            # Use the first mapping's index_vars
+            mapping = deepest_mappings[0]
+            # Determine which variable to bind based on how many are already bound
+            num_bound = len(index_bindings)
+            if num_bound < len(mapping.index_vars):
+                index_var_name = mapping.index_vars[num_bound]
+
         # Iterate over elements
         for i in range(size):
             item = data_ptr[i]
-            item_binding = {
-                "type": "vector_item",
-                "index": i,
-                "parent": layout.binding
-            }
+
+            # Extend index bindings for this vector level
+            child_index_bindings = index_bindings.copy()
+            if index_var_name:
+                child_index_bindings[index_var_name] = i
+
             child_layout = self.element_renderer(
                 item,
-                parent_binding=item_binding,
                 parent_path=parent_path + [i],
                 direction=next_dir,
                 color="lightgray",
                 sizing=(FIT(), FIT()),
                 logger=logger,
+                index_bindings=child_index_bindings
             )
-            apply_config(child_layout)
-            child_layout.binding = item_binding
+
             layout.add_child(child_layout)
 
         return layout

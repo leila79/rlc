@@ -1,18 +1,16 @@
 from command_line import load_program_from_args, make_rlc_argparse
 from rlc import Program
 from rlc.renderer.factory import RendererFactory
-from rlc.serialization.renderer_serializer import save_renderer
 from test.red_board_renderer import RedBoard
-from test.tic_tac_toe_board import TicTacToeBoardRenderer
+from rlc.renderer.interaction_context import InteractionContext
 from rlc.layout import  Direction
 import os
 import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
 from rlc.serialization.renderer_serializer import load_renderer
-from test.event_dispatcher import EventDispatcher
 from simulate import new_timing_bucket, relayout, any_child_dirty, print_timings
-from rlc.renderer.config_parser import  action, ACTION_REGISTRY
+from rlc.renderer.config_parser import action, ACTION_REGISTRY
 
 @action("mark_cell")
 def mark_cell(program, state, x, y):
@@ -41,18 +39,32 @@ if __name__ == "__main__":
     parser = make_rlc_argparse("game_display", description="Display game state")
     args = parser.parse_args()
     with load_program_from_args(args, optimize=True) as program:
-        
 
-        config = {
-            'Board' : {
-                # "renderer" : TicTacToeBoardRenderer,
-            }
-        }
-        interaction_config = {
-            "Game/board/slots/$x/$y/on_click": "mark_cell"
-        }
-        renderer = RendererFactory.from_rlc_type(program.module.Game, config)
+        # Load interaction config at compile-time
+        interaction_ctx = InteractionContext.from_config_file()
 
+        config = {}
+
+        # Build renderer tree with interaction mappings
+        renderer = RendererFactory.from_rlc_type(
+            program.module.Game,
+            config,
+            interaction_ctx=interaction_ctx,
+            rlc_path=["Game"]
+        )
+
+        # source_file = args.source_file
+        # base_name = os.path.splitext(os.path.basename(source_file))[0] if source_file else "renderer"
+        # load_path = os.path.join("./logs", f"{base_name}.yaml")
+
+        # renderer = load_renderer(load_path)
+
+        # Print debug info about interaction mappings
+        print("\n" + "="*80)
+        print("RENDERER TREE WITH INTERACTION MAPPINGS:")
+        print("="*80)
+        renderer.print_interaction_tree()
+        print("="*80 + "\n")
 
         pygame.init()  
         screen = pygame.display.set_mode((1280, 720), pygame.RESIZABLE)
@@ -81,8 +93,6 @@ if __name__ == "__main__":
             else:
                 state = program.start()
             layout = renderer(state.state)
-            # layout.propagate_interactive()
-            layout.print_path()
             
             actions = state.legal_actions
             relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)

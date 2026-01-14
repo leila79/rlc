@@ -19,18 +19,34 @@ class RendererFactory:
 
     _cache = {}
     @classmethod
-    def from_rlc_type(cls, rlc_type, config : Dict[type, type]):
+    def from_rlc_type(cls, rlc_type, config : Dict[type, type], interaction_ctx=None, rlc_path=None):
         """
-        config: { rlc_type : RendererClass } for user overrides.
+        Build a renderer tree from RLC types with optional interaction config.
+
+        Args:
+            rlc_type: The RLC ctypes structure to create renderer for
+            config: { rlc_type : RendererClass } for user overrides
+            interaction_ctx: InteractionContext for compile-time interaction resolution
+            rlc_path: Current path in RLC type tree for interaction mapping
         """
         if config is None:
             config = {}
 
-        # Use cache for performance
-        if rlc_type in cls._cache:
-            return cls._cache[rlc_type]
+        if rlc_path is None:
+            rlc_path = []
+
+        # Note: Cache disabled to avoid stale interaction mappings
+        # if rlc_type in cls._cache:
+        #     return cls._cache[rlc_type]
 
         name = getattr(rlc_type, "__name__", str(rlc_type))
+
+        # Helper to apply interactions after creating a renderer
+        def _apply_interactions(renderer, current_path):
+            if interaction_ctx:
+                mappings = interaction_ctx.resolve_interactions(id(renderer), current_path)
+                renderer.interaction_mappings = mappings
+            return renderer
 
         # 1. User-specified renderer override (for custom classes)
         custom_conf = config.get(name, {})
@@ -41,13 +57,16 @@ class RendererFactory:
         def _container_renderer(renderer_cls):
             fields = {}
             for fname, ftype in getattr(rlc_type, "_fields_", []):
-                child_renderer = cls.from_rlc_type(ftype, config)
+                # Child paths include only the field name, not type names
+                child_path = rlc_path + [fname]
+                child_renderer = cls.from_rlc_type(ftype, config, interaction_ctx, child_path)
                 if child_renderer is None:
                     continue
                 fields[fname] = child_renderer
             renderer = renderer_cls(rlc_type.__name__, fields)
-            cls._cache[rlc_type] = renderer
-            return renderer
+            # cls._cache[rlc_type] = renderer
+            # Containers themselves don't add their type name to the path
+            return _apply_interactions(renderer, rlc_path)
 
         if "Hidden" in name and hasattr(rlc_type, "_fields_"):
             # return None
@@ -57,15 +76,15 @@ class RendererFactory:
         if "BoundedVector" in name and hasattr(rlc_type, "_fields_"):
             renderer_cls = custom_renderer_class or BoundedVectorRenderer
             field = None
-            for _, ftype in getattr(rlc_type, "_fields_", []):
-
-                candidate = cls.from_rlc_type(ftype, config)
+            for fname, ftype in getattr(rlc_type, "_fields_", []):
+                child_path = rlc_path
+                candidate = cls.from_rlc_type(ftype, config, interaction_ctx, child_path)
                 if candidate is not None:
                     field = candidate
                     break
             renderer = renderer_cls(rlc_type.__name__, field)
-            cls._cache[rlc_type] = renderer
-            return renderer
+            # cls._cache[rlc_type] = renderer
+            return _apply_interactions(renderer, rlc_path)
 
         # 2. Vector
         if "Vector" in name and hasattr(rlc_type, "_fields_"):
@@ -74,10 +93,11 @@ class RendererFactory:
             else:
                 renderer_cls = VectorRenderer
             element = cls._extract_vector_element(rlc_type)
-            element_renderer = cls.from_rlc_type(element, config)
+            # Vector elements use index variables in path
+            element_renderer = cls.from_rlc_type(element, config, interaction_ctx, rlc_path + ["$i"])
             renderer = renderer_cls(rlc_type.__name__, element_renderer)
-            cls._cache[rlc_type] = renderer
-            return renderer
+            # cls._cache[rlc_type] = renderer
+            return _apply_interactions(renderer, rlc_path)
 
         # 3. Array
         if hasattr(rlc_type, "_length_") and hasattr(rlc_type, "_type_"):
@@ -85,14 +105,14 @@ class RendererFactory:
                 renderer_cls = custom_renderer_class
             else:
                 renderer_cls = ArrayRenderer
-            element_renderer = cls.from_rlc_type(rlc_type._type_, config)
+            element_renderer = cls.from_rlc_type(rlc_type._type_, config, interaction_ctx, rlc_path + ["$i"])
             renderer = renderer_cls(
                 rlc_type.__name__,
                 rlc_type._length_,
                 element_renderer
             )
-            cls._cache[rlc_type] = renderer
-            return renderer
+            # cls._cache[rlc_type] = renderer
+            return _apply_interactions(renderer, rlc_path)
 
         # 4. Bounded int
         if name.startswith("BInt"):
@@ -101,8 +121,9 @@ class RendererFactory:
             else:
                 renderer_cls = BoundedIntRenderer
             renderer = renderer_cls(rlc_type.__name__)
-            cls._cache[rlc_type] = renderer
-            return renderer
+            # cls._cache[rlc_type] = renderer
+            # Check interactions at the current path (without adding type name)
+            return _apply_interactions(renderer, rlc_path)
 
         # 5. Primitive
         if rlc_type in (c_long, c_bool):
@@ -111,8 +132,9 @@ class RendererFactory:
             else:
                 renderer_cls = PrimitiveRenderer
             renderer = renderer_cls(rlc_type.__name__)
-            cls._cache[rlc_type] = renderer
-            return renderer
+            # cls._cache[rlc_type] = renderer
+            # Check interactions at the current path (without adding type name)
+            return _apply_interactions(renderer, rlc_path)
 
         # 6. Struct (object with fields)
         if hasattr(rlc_type, "_fields_"):
@@ -121,8 +143,9 @@ class RendererFactory:
 
         # 7. Fallback: treat as primitive
         renderer = PrimitiveRenderer(rlc_type.__name__)
-        cls._cache[rlc_type] = renderer
-        return renderer
+        # cls._cache[rlc_type] = renderer
+        # Check interactions at the current path (without adding type name)
+        return _apply_interactions(renderer, rlc_path)
 
     # Extract element type from Vector<T>
     @staticmethod

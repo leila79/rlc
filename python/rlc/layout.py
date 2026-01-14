@@ -50,8 +50,7 @@ class Layout:
             interactive=False,
             on_click=None,
             on_hover=None,
-            on_key=None,
-            userdata=None):
+            on_key=None):
         self.sizing : Tuple[SizePolicy, SizePolicy] = sizing
         self.direction : Direction = direction
         self.border = border
@@ -66,9 +65,7 @@ class Layout:
         self.on_click = on_click
         self.on_hover = on_hover
         self.on_key = on_key
-        self.userdata = userdata
         self._children_sized = False
-        self.binding = None
         self.render_path = None
         self.focused = False
         self.width = sizing[0].value if sizing[0].size_policy == SizePolicies.FIXED else 0
@@ -309,20 +306,6 @@ class Layout:
             return self
 
         return None
-
-    def propagate_interactive(self):
-        """Ensure ancestors become interactive if any descendant is interactive."""
-        child_has_interactive = False
-        child_on_click = None
-        for child in self.children:
-            interactive, on_click = child.propagate_interactive()
-            if interactive:
-                child_has_interactive = True
-                child_on_click = on_click
-        if child_has_interactive:
-            self.interactive = True
-            self.on_click = child_on_click
-        return (self.interactive, self.on_click)
 
     def find_focused_node(self):
         """
