@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class VectorRenderer(Renderable):
     element_renderer: Renderable
 
-    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5), index_bindings=None):
+    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5), index_bindings=None, mapping=None, byte_offset=0, rlc_type=None):
         if index_bindings is None:
             index_bindings = {}
 
@@ -30,6 +30,14 @@ class VectorRenderer(Renderable):
         # Apply pre-computed interactions for the vector container
         self._apply_interaction_mappings(layout, index_bindings)
 
+        # Register as heap_dependent: vector data lives on the heap,
+        # so struct-level snapshot diffs can't detect changes
+        if mapping is not None and rlc_type is not None:
+            import ctypes
+            mapping.add_entry(tuple(parent_path), byte_offset,
+                              ctypes.sizeof(rlc_type), self, layout,
+                              heap_dependent=True)
+
         if not data_ptr or size <= 0:
             return layout
 
@@ -44,11 +52,11 @@ class VectorRenderer(Renderable):
         deepest_mappings = self.element_renderer._get_deepest_interaction_mappings()
         if deepest_mappings:
             # Use the first mapping's index_vars
-            mapping = deepest_mappings[0]
+            interaction_mapping = deepest_mappings[0]
             # Determine which variable to bind based on how many are already bound
             num_bound = len(index_bindings)
-            if num_bound < len(mapping.index_vars):
-                index_var_name = mapping.index_vars[num_bound]
+            if num_bound < len(interaction_mapping.index_vars):
+                index_var_name = interaction_mapping.index_vars[num_bound]
 
         # Iterate over elements
         for i in range(size):
@@ -66,7 +74,10 @@ class VectorRenderer(Renderable):
                 color="lightgray",
                 sizing=(FIT(), FIT()),
                 logger=logger,
-                index_bindings=child_index_bindings
+                index_bindings=child_index_bindings,
+                mapping=mapping,
+                byte_offset=byte_offset,
+                rlc_type=rlc_type
             )
 
             layout.add_child(child_layout)

@@ -29,8 +29,16 @@ def renderable_representer(dumper: RenderableDumper, obj: 'Renderable'):
         if f.name == "interaction_mappings":
             if value:  # Only add if not empty
                 # Convert InteractionMapping objects to dicts for serialization
-                from dataclasses import asdict
-                mappings_as_dicts = [asdict(m) for m in value]
+                # Exclude index_vars since they're now embedded in the path (e.g., $x, $y)
+                mappings_as_dicts = [
+                    {
+                        "event_type": m.event_type,
+                        "handler_name": m.handler_name,
+                        "param_vars": m.param_vars,
+                        "path": m.path
+                    }
+                    for m in value
+                ]
                 mapping.append((f.name, mappings_as_dicts))
             continue
 
@@ -62,7 +70,20 @@ def renderable_multi_constructor(loader: RenderableLoader, tag_suffix: str, node
     if "interaction_mappings" in data:
         from rlc.renderer.interaction_context import InteractionMapping
         mappings_data = data.pop("interaction_mappings")  # Remove from data dict
-        interaction_mappings = [InteractionMapping(**m) for m in mappings_data]
+
+        # Reconstruct index_vars from path (extract $x, $y, etc.)
+        interaction_mappings = []
+        for m in mappings_data:
+            # Extract variable names from path
+            index_vars = [seg[1:] for seg in m["path"] if isinstance(seg, str) and seg.startswith('$')]
+
+            interaction_mappings.append(InteractionMapping(
+                event_type=m["event_type"],
+                handler_name=m["handler_name"],
+                index_vars=index_vars,
+                param_vars=m["param_vars"],
+                path=m["path"]
+            ))
 
     # Create instance without interaction_mappings
     instance = cls(**data)
@@ -160,14 +181,17 @@ class Renderable(ABC):
         """
         pass
 
-    def __call__(self, obj, parent_path=None, **kwds):
+    def __call__(self, obj, parent_path=None, mapping=None, byte_offset=0,
+                 rlc_type=None, **kwds):
 
         if parent_path is None:
             current_path = [self.rlc_type_name]
         else:
             current_path = list(parent_path)
 
-        layout = self.build_layout(obj=obj, parent_path=current_path, **kwds)
+        layout = self.build_layout(obj=obj, parent_path=current_path,
+                                   mapping=mapping, byte_offset=byte_offset,
+                                   rlc_type=rlc_type, **kwds)
 
         return layout
 

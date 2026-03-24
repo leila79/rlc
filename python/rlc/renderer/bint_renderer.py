@@ -9,7 +9,7 @@ class BoundedIntRenderer(Renderable):
     Renderer for bounded integer structs like BIntT1T10T.
     """
     def build_layout(self, obj, parent_path, direction=Direction.COLUMN,
-                     color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2), index_bindings=None):
+                     color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(2,2,2,2), index_bindings=None, mapping=None, byte_offset=0, rlc_type=None):
         if index_bindings is None:
             index_bindings = {}
 
@@ -22,6 +22,12 @@ class BoundedIntRenderer(Renderable):
 
         # Apply pre-computed interactions with index bindings
         self._apply_interaction_mappings(layout, index_bindings)
+
+        # Register in sim↔renderer mapping
+        if mapping is not None and rlc_type is not None:
+            import ctypes
+            mapping.add_entry(tuple(parent_path), byte_offset,
+                              ctypes.sizeof(rlc_type), self, layout)
 
         return layout
 

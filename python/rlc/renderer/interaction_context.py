@@ -86,12 +86,15 @@ class InteractionContext:
             if self._matches_pattern(parsed_path, rlc_path):
                 event_type = parsed_path.event
 
+                # Replace $i placeholders with actual variable names for readable YAML
+                readable_path = self._make_readable_path(rlc_path, parsed_path.index_vars)
+
                 mapping = InteractionMapping(
                     event_type=event_type,
                     handler_name=handler_name,
                     index_vars=parsed_path.index_vars,
                     param_vars=parsed_path.param_vars,
-                    path=rlc_path.copy()
+                    path=readable_path
                 )
                 mappings.append(mapping)
 
@@ -99,6 +102,34 @@ class InteractionContext:
             self.renderer_interactions[renderer_id] = mappings
 
         return mappings
+
+    def _make_readable_path(self, path: List[str], index_vars: List[str]) -> List[str]:
+        """
+        Replace $i placeholders in path with actual variable names.
+
+        Args:
+            path: Path with $i placeholders like ['Game', 'board', 'slots', '$i', '$i']
+            index_vars: Variable names like ['x', 'y']
+
+        Returns:
+            Readable path like ['Game', 'board', 'slots', '$x', '$y']
+        """
+        readable_path = []
+        var_index = 0
+
+        for segment in path:
+            if segment == '$i':
+                # Replace with actual variable name
+                if var_index < len(index_vars):
+                    readable_path.append(f'${index_vars[var_index]}')
+                    var_index += 1
+                else:
+                    # Fallback if we run out of variable names
+                    readable_path.append(segment)
+            else:
+                readable_path.append(segment)
+
+        return readable_path
 
     def _matches_pattern(self, parsed_path: ParsedPath, rlc_path: List[str]) -> bool:
         """

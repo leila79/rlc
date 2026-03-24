@@ -51,29 +51,24 @@ class RendererFactory:
         # 1. User-specified renderer override (for custom classes)
         custom_conf = config.get(name, {})
         custom_renderer_class = custom_conf.get("renderer")
-        if custom_renderer_class is not None:
-            custom_conf = {}
+        print(name, custom_conf, custom_renderer_class)
+        # if custom_renderer_class is not None:
+        #     custom_conf = {}
 
         def _container_renderer(renderer_cls):
-            fields = {}
-            for fname, ftype in getattr(rlc_type, "_fields_", []):
-                # Child paths include only the field name, not type names
-                child_path = rlc_path + [fname]
-                child_renderer = cls.from_rlc_type(ftype, config, interaction_ctx, child_path)
-                if child_renderer is None:
-                    continue
-                fields[fname] = child_renderer
+            fields = renderer_cls.create_fields(cls.from_rlc_type, rlc_type, rlc_path, config, interaction_ctx)
             renderer = renderer_cls(rlc_type.__name__, fields)
             # cls._cache[rlc_type] = renderer
             # Containers themselves don't add their type name to the path
             return _apply_interactions(renderer, rlc_path)
 
         if "Hidden" in name and hasattr(rlc_type, "_fields_"):
-            # return None
-            renderer_cls = custom_renderer_class or ContainerRenderer
-            return _container_renderer(renderer_cls)
+            return None
+            # renderer_cls = custom_renderer_class or ContainerRenderer
+            # return _container_renderer(renderer_cls)
             
-        if "BoundedVector" in name and hasattr(rlc_type, "_fields_"):
+        # 2. BoundedVector (check before general vector to use correct renderer)
+        if "Bounded" in name and cls._is_vector(rlc_type):
             renderer_cls = custom_renderer_class or BoundedVectorRenderer
             field = None
             for fname, ftype in getattr(rlc_type, "_fields_", []):
@@ -86,8 +81,9 @@ class RendererFactory:
             # cls._cache[rlc_type] = renderer
             return _apply_interactions(renderer, rlc_path)
 
-        # 2. Vector
-        if "Vector" in name and hasattr(rlc_type, "_fields_"):
+        # 3. Vector-like containers (Vector, Dictionary, etc.)
+        # Uses structural detection: types with _data and _size fields
+        if cls._is_vector(rlc_type):
             if custom_renderer_class:
                 renderer_cls = custom_renderer_class
             else:
@@ -99,7 +95,7 @@ class RendererFactory:
             # cls._cache[rlc_type] = renderer
             return _apply_interactions(renderer, rlc_path)
 
-        # 3. Array
+        # 4. Array
         if hasattr(rlc_type, "_length_") and hasattr(rlc_type, "_type_"):
             if custom_renderer_class:
                 renderer_cls = custom_renderer_class
@@ -114,7 +110,7 @@ class RendererFactory:
             # cls._cache[rlc_type] = renderer
             return _apply_interactions(renderer, rlc_path)
 
-        # 4. Bounded int
+        # 5. Bounded int
         if name.startswith("BInt"):
             if custom_renderer_class:
                 renderer_cls = custom_renderer_class
@@ -125,7 +121,7 @@ class RendererFactory:
             # Check interactions at the current path (without adding type name)
             return _apply_interactions(renderer, rlc_path)
 
-        # 5. Primitive
+        # 6. Primitive
         if rlc_type in (c_long, c_bool):
             if custom_renderer_class:
                 renderer_cls = custom_renderer_class
@@ -136,16 +132,36 @@ class RendererFactory:
             # Check interactions at the current path (without adding type name)
             return _apply_interactions(renderer, rlc_path)
 
-        # 6. Struct (object with fields)
+        # 7. Struct (object with fields)
         if hasattr(rlc_type, "_fields_"):
             renderer_cls = custom_renderer_class or ContainerRenderer
             return _container_renderer(renderer_cls)
 
-        # 7. Fallback: treat as primitive
+        # 8. Fallback: treat as primitive
         renderer = PrimitiveRenderer(rlc_type.__name__)
         # cls._cache[rlc_type] = renderer
         # Check interactions at the current path (without adding type name)
         return _apply_interactions(renderer, rlc_path)
+
+    @staticmethod
+    def _is_vector(rlc_type) -> bool:
+        """
+        Check if type is vector by structure or name.
+
+        Uses hybrid approach:
+        1. First checks for vector structure (_data + _size fields)
+        2. Falls back to name pattern matching for backward compatibility
+        """
+        name = getattr(rlc_type, "__name__", "")
+        fields = getattr(rlc_type, "_fields_", [])
+        field_names = {fname for fname, _ in fields}
+
+        # Check structure first (preferred for generalization)
+        if "_data" in field_names and "_size" in field_names:
+            return True
+
+        # Fallback to name patterns for backward compatibility
+        return "Vector" in name and hasattr(rlc_type, "_fields_")
 
     # Extract element type from Vector<T>
     @staticmethod

@@ -72,7 +72,7 @@ class Layout:
         self.height = sizing[1].value if sizing[1].size_policy == SizePolicies.FIXED else 0    
          
     def add_child(self, child: 'Layout') -> None:
-        self.children.append(copy.deepcopy(child))
+        self.children.append(child)
 
     def _axis_size(self, axis: int) -> float:
         return self.width if axis == 0 else self.height
