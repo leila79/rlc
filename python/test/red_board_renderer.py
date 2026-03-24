@@ -14,7 +14,7 @@ class RedBoard(ContainerRenderer):
         del fields['resume_index']
         # Transform display names by adding 'red' prefix while keeping actual field names
         return {'red_' + key: value for key, value in fields.items()}
-    def build_layout(self, obj, parent_path, direction=Direction.COLUMN, color="red", sizing=(FIT(), FIT()), logger=None, padding=Padding(7,7,7,7), index_bindings=None, mapping=None, byte_offset=0, rlc_type=None):
+    def build_layout(self, obj, parent_path, direction=Direction.COLUMN, color="red", sizing=(FIT(), FIT()), logger=None, padding=Padding(7,7,7,7), index_bindings=None, mapping=None):
         if index_bindings is None:
             index_bindings = {}
 
@@ -24,9 +24,6 @@ class RedBoard(ContainerRenderer):
 
         # Apply pre-computed interactions
         self._apply_interaction_mappings(layout, index_bindings)
-
-        # Build field type lookup for byte offset computation
-        field_types = {fname: ftype for fname, ftype in getattr(rlc_type, "_fields_", [])} if rlc_type else {}
 
         for display_name, field_data in self.field_renderers.items():
             if field_data is None:
@@ -42,15 +39,6 @@ class RedBoard(ContainerRenderer):
                     f"Available fields: {', '.join(f for f, _ in getattr(type(obj), '_fields_', []))}"
                 )
 
-            # Compute child byte offset and type for mapping
-            child_rlc_type = field_types.get(actual_field_name)
-            child_byte_offset = byte_offset
-            if rlc_type and child_rlc_type:
-                field_desc = getattr(rlc_type, actual_field_name, None)
-                if field_desc and hasattr(field_desc, 'offset'):
-                    child_byte_offset = byte_offset + field_desc.offset
-
-            # Create a row for "name: value"
             value = getattr(obj, actual_field_name)
             row_layout = self.make_layout(sizing=(FIT(), FIT()), direction=Direction.ROW, child_gap=5, color=None, border=5, padding=Padding(10,10,10,10))
             row_layout.render_path = parent_path
@@ -58,11 +46,9 @@ class RedBoard(ContainerRenderer):
             label.render_path = parent_path
             value_layout = field_renderer(
                 value,
-                parent_path= parent_path + [actual_field_name],
+                parent_path=parent_path + [actual_field_name],
                 index_bindings=index_bindings,
-                mapping=mapping,
-                byte_offset=child_byte_offset,
-                rlc_type=child_rlc_type)
+                mapping=mapping)
             row_layout.add_child(label)
             row_layout.add_child(value_layout)
             layout.add_child(row_layout)

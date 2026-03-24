@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class VectorRenderer(Renderable):
     element_renderer: Renderable
 
-    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5), index_bindings=None, mapping=None, byte_offset=0, rlc_type=None):
+    def build_layout(self, obj, parent_path, direction=Direction.ROW, color="white", sizing=(FIT(), FIT()), logger=None, padding=Padding(5, 5, 5, 5), index_bindings=None, mapping=None):
         if index_bindings is None:
             index_bindings = {}
 
@@ -30,39 +30,28 @@ class VectorRenderer(Renderable):
         # Apply pre-computed interactions for the vector container
         self._apply_interaction_mappings(layout, index_bindings)
 
-        # Register as heap_dependent: vector data lives on the heap,
-        # so struct-level snapshot diffs can't detect changes
-        if mapping is not None and rlc_type is not None:
-            import ctypes
-            mapping.add_entry(tuple(parent_path), byte_offset,
-                              ctypes.sizeof(rlc_type), self, layout,
-                              heap_dependent=True)
+        # Register so VectorRenderer.update() is called on vector size changes
+        if mapping is not None:
+            mapping.add_entry(tuple(parent_path), self, layout)
 
         if not data_ptr or size <= 0:
             return layout
 
-        # Alternate direction for the next nesting level
         next_dir = (
             Direction.ROW if direction == Direction.COLUMN else Direction.COLUMN
         )
 
-        # Determine which index variable to bind at this vector level
-        # Search recursively for interaction mappings in child elements
         index_var_name = None
         deepest_mappings = self.element_renderer._get_deepest_interaction_mappings()
         if deepest_mappings:
-            # Use the first mapping's index_vars
             interaction_mapping = deepest_mappings[0]
-            # Determine which variable to bind based on how many are already bound
             num_bound = len(index_bindings)
             if num_bound < len(interaction_mapping.index_vars):
                 index_var_name = interaction_mapping.index_vars[num_bound]
 
-        # Iterate over elements
         for i in range(size):
             item = data_ptr[i]
 
-            # Extend index bindings for this vector level
             child_index_bindings = index_bindings.copy()
             if index_var_name:
                 child_index_bindings[index_var_name] = i
@@ -76,8 +65,6 @@ class VectorRenderer(Renderable):
                 logger=logger,
                 index_bindings=child_index_bindings,
                 mapping=mapping,
-                byte_offset=byte_offset,
-                rlc_type=rlc_type
             )
 
             layout.add_child(child_layout)

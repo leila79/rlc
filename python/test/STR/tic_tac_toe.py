@@ -96,7 +96,7 @@ if __name__ == "__main__":
             else:
                 state = program.start()
             mapping = SimRendererMapping()
-            layout = renderer(state.state, parent_path=[], mapping=mapping, rlc_type=program.module.Game)
+            layout = renderer(state.state, parent_path=[], mapping=mapping)
             actions = state.legal_actions
             mapping.print_mapping()
 
@@ -108,7 +108,8 @@ if __name__ == "__main__":
                 relayout(screen, backend, layout, logger, compute_times, layout_times, controller.scroll)
 
             controller = UpdateController(renderer, layout, do_relayout, dispatch_action,
-                                          mapping=mapping, state_obj=state.state)
+                                          mapping=mapping, state_obj=state.state,
+                                          program_module=program.module)
             do_relayout()
 
             if logger:

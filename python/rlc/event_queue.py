@@ -1,3 +1,4 @@
+import ctypes
 from dataclasses import dataclass, field
 from typing import Optional, Any, Callable, Dict
 from enum import Enum
@@ -28,6 +29,25 @@ class UpdateSignal:
     dy: int = 0
 
 
+def _copy_state(state_obj):
+    """Deep copy of the state object via RLC's generated clone() method.
+    clone() uses rl_m_assign which allocates independent heap storage for
+    Vector fields, preventing double-free and allowing diff to detect changes.
+    """
+    return state_obj.clone()
+
+
+def _rlc_string_to_python(rlc_str) -> str:
+    """Convert an RLC String object to a Python str."""
+    vec = rlc_str._data       # Vector<Byte>
+    size = vec._size           # includes null terminator
+    data = vec._data           # pointer to bytes
+    return bytes(
+        data[i] if isinstance(data[i], int) else data[i].value
+        for i in range(size - 1)  # -1 to skip null terminator
+    ).decode('ascii')
+
+
 class UpdateController:
     """
     Guarded Update Protocol controller.
@@ -37,19 +57,13 @@ class UpdateController:
 
     Phase 1 (COLLECT): Accumulate UpdateSignals from input events
     Phase 2 (MUTATE):  Execute all action handlers
-    Phase 3 (UPDATE):  Diff state snapshot against last known state,
+    Phase 3 (UPDATE):  Call RLC diff against last known state,
                        update only the renderers whose sim fields changed
     Phase 4 (RELAYOUT): If dirty, recompute sizes and positions once
-
-    Uses a SimRendererMapping to map byte offsets in the simulation state
-    to specific renderer+layout_node pairs. A persistent snapshot tracks the
-    last known state; diffing against it naturally deduplicates and buffers
-    all changes regardless of how many handlers ran or whether state was
-    modified externally (e.g., auto-play).
     """
 
     def __init__(self, renderer, layout, relayout_fn: Callable, dispatch_fn: Callable,
-                 mapping=None, state_obj=None):
+                 mapping=None, state_obj=None, program_module=None):
         """
         Args:
             renderer: The root renderer (Renderable subclass)
@@ -59,8 +73,9 @@ class UpdateController:
                          an action handler and returns True if state changed.
             mapping: Optional SimRendererMapping for targeted updates.
                      If None, falls back to full renderer.update().
-            state_obj: The initial state object. Required if mapping is provided
-                       (used to take the initial snapshot).
+            state_obj: The initial state object. Required if mapping is provided.
+            program_module: The compiled RLC module. Required for targeted updates
+                            (provides the `diff` function from algorithms/diff.rl).
         """
         self.renderer = renderer
         self.layout = layout
@@ -76,11 +91,11 @@ class UpdateController:
 
         # Targeted update support
         self._mapping = mapping
+        self._program_module = program_module
         if mapping is not None and state_obj is not None:
-            from rlc.sim_renderer_mapping import SimRendererMapping
-            self._last_snapshot = SimRendererMapping.take_snapshot(state_obj)
+            self._last_state = _copy_state(state_obj)
         else:
-            self._last_snapshot = None
+            self._last_state = None
 
     def enqueue(self, signal: UpdateSignal):
         """Add a signal to the queue. Safe to call from handlers."""
@@ -108,7 +123,13 @@ class UpdateController:
 
             # Phase 3: UPDATE
             if self._state_changed:
-                if self._mapping is not None and self._last_snapshot is not None:
+                can_target = (self._mapping is not None
+                              and self._last_state is not None
+                              and self._program_module is not None
+                              and hasattr(self._program_module, 'diff')
+                              and hasattr(self._program_module, 'VectorTStringT'))
+                
+                if can_target:
                     self._targeted_update(state_obj, elapsed)
                 else:
                     self.renderer.update(self.layout, state_obj, elapsed)
@@ -124,30 +145,35 @@ class UpdateController:
 
     def _targeted_update(self, state_obj, elapsed: float):
         """
-        Diff current state against last snapshot.
-        Update only the renderers whose simulation fields changed.
-        Heap-dependent entries (vectors) are always updated since their
-        data lives outside the struct snapshot.
+        Call RLC diff to find changed fields, update only those renderers.
+        Uses stdlib/algorithms/diff.rl via program_module.diff().
         """
         from rlc.sim_renderer_mapping import SimRendererMapping
 
-        current = SimRendererMapping.take_snapshot(state_obj)
+        changed = self._program_module.VectorTStringT()
+        self._program_module.diff(self._last_state, state_obj, changed)
 
-        # diff() handles both struct-level byte comparison AND heap-dependent
-        # entries (which are always considered dirty)
-        dirty_entries = self._mapping.diff(self._last_snapshot, current)
-        if dirty_entries:
-            print(f"[targeted_update] {len(dirty_entries)} dirty entries:")
-            for entry in dirty_entries:
-                path_str = ".".join(str(s) for s in entry.sim_path)
-                value = SimRendererMapping.resolve_value(state_obj, entry.sim_path)
-                print(f"  {path_str} -> {value}")
+        num_changed = changed.size() if hasattr(changed, 'size') else changed._data._size
+        for i in range(num_changed):
+            path_str = _rlc_string_to_python(changed.get(i).contents)
+            sim_path = tuple(
+                int(p) if p.isdigit() else p
+                for p in path_str.split('.')
+                if p
+            )
+            entry = self._mapping.get_entry(sim_path)
+            if entry:
+                value = SimRendererMapping.resolve_value(state_obj, sim_path)
                 entry.renderer.update(entry.layout_node, value, elapsed)
-        else:
-            print("[targeted_update] no dirty entries found (snapshots identical)")
 
-        self._last_snapshot = current
-        if dirty_entries:
+        self._last_state = _copy_state(state_obj)
+        if num_changed > 0:
+            self._needs_relayout = True
+        else:
+            # Shallow copy shares heap with original — diff may miss heap-resident
+            # changes (e.g. Vector elements without size change). Fall back to
+            # full update so the renderer stays consistent.
+            self.renderer.update(self.layout, state_obj, elapsed)
             self._needs_relayout = True
 
     def notify_state_changed(self):

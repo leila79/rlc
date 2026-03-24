@@ -4,20 +4,20 @@
 import serialization.to_byte_vector
 import string
 import action
+import algorithms.diff
 
 cls Board:
-  BInt<0, 3>[9] slots
+  BInt<0, 3>[3][3] slots
   Bool playerTurn
 
   fun get(Int x, Int y) -> Int:
-    return self.slots[x + (y * 3)].value
+    return self.slots[x][y].value
 
   fun set(Int x, Int y, Int val):
-    self.slots[x + (y * 3)].value = val
+    self.slots[x][y].value = val
 
   fun full() -> Bool:
     let x = 0
-
     while x < 3:
       let y = 0
       while y < 3:
@@ -25,7 +25,6 @@ cls Board:
           return false
         y = y + 1
       x = x + 1
-
     return true
 
   fun three_in_a_line_player_row(Int player_id, Int row) -> Bool:
@@ -34,13 +33,16 @@ cls Board:
   fun three_in_a_line_player(Int player_id) -> Bool:
     let x = 0
     while x < 3:
+      # check column
       if self.get(x, 0) == self.get(x, 1) and self.get(x, 0) == self.get(x, 2) and self.get(x, 0) == player_id:
         return true
 
+      # check row
       if self.three_in_a_line_player_row(player_id, x):
         return true
       x = x + 1
 
+    # check diagonals
     if self.get(0, 0) == self.get(1, 1) and self.get(0, 0) == self.get(2, 2) and self.get(0, 0) == player_id:
       return true
 
@@ -62,8 +64,7 @@ act play() -> Game:
   frm board : Board
   frm score = 10
   while !board.full():
-    # sets the indicated board as beloning 
-    # to the current player
+    
     act mark(BInt<0, 3> x, BInt<0, 3> y) { board.get(x.value, y.value) == 0 }
 
     score = score - 1
@@ -83,11 +84,15 @@ fun score(Game g, Int player_id) -> Float:
     return 1.0
   else if g.board.three_in_a_line_player(((player_id + 1) % 2) + 1):
     return -1.0
-
   return 0.0
 
 fun get_num_players() -> Int:
   return 2
+
+fun make_pos(Int x) -> BInt<0, 3>:
+    let num : BInt<0, 3> 
+    num = x
+    return num
 
 fun fuzz(Vector<Byte> input):
   if input.size() == 0:
@@ -100,31 +105,37 @@ fun main() -> Int:
   let game = play()
   let x : BInt<0, 3>
   let y : BInt<0, 3>
+
   x.value = 0
   y.value = 0
   game.mark(x, y)
   if game.board.full():
     return 1
+
   x.value = 1
   y.value = 0
   game.mark(x, y)
   if game.board.full():
     return 2
+
   x.value = 1
   y.value = 1
   game.mark(x, y)
   if game.board.full():
     return 3
+
   x.value = 2
   y.value = 0
   game.mark(x, y)
   if game.board.full():
     return 4
+
   x.value = 2
   y.value = 2
   game.mark(x, y)
   if game.board.full():
     return 5
+
   if game.board.three_in_a_line_player(1):
     return 0
   else:
@@ -141,3 +152,5 @@ fun pretty_print(Game g):
     print(to_print)
     i = i + 1
 
+fun game_diff(Game before, Game after, Vector<String> out):
+    diff(before, after, out)

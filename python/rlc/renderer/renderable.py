@@ -181,8 +181,7 @@ class Renderable(ABC):
         """
         pass
 
-    def __call__(self, obj, parent_path=None, mapping=None, byte_offset=0,
-                 rlc_type=None, **kwds):
+    def __call__(self, obj, parent_path=None, mapping=None, **kwds):
 
         if parent_path is None:
             current_path = [self.rlc_type_name]
@@ -190,8 +189,7 @@ class Renderable(ABC):
             current_path = list(parent_path)
 
         layout = self.build_layout(obj=obj, parent_path=current_path,
-                                   mapping=mapping, byte_offset=byte_offset,
-                                   rlc_type=rlc_type, **kwds)
+                                   mapping=mapping, **kwds)
 
         return layout
 

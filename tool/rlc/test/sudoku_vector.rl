@@ -5,6 +5,7 @@ import collections.vector
 import range
 import serialization.print
 import action
+import algorithms.diff
 
 cls RedBoard:
     BInt<0, 3>[3][3] slots
@@ -40,7 +41,7 @@ fun can_place(Board board, Int row, Int col, Int num) -> Bool:
 @classes
 act play() -> Game:
     frm board : Board
-    frm redboard : RedBoard
+    # frm redboard : RedBoard
     # Initialize empty board
     board.slots.resize(9)
     for i in range(9):
@@ -331,3 +332,6 @@ fun main() -> Int:
         return 0
     else:
         return 1
+
+fun game_diff(Game before, Game after, Vector<String> out):
+    diff(before, after, out)

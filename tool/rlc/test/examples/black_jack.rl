@@ -1,7 +1,8 @@
 # RUN: python %pyscript/solve.py %s --stdlib %stdlib --rlc rlc
 import collections.vector
-import machine_learning 
+import machine_learning
 import action
+import algorithms.diff
 
 # A card is a integer from
 # 0 to 13 included, where 
@@ -14,6 +15,13 @@ using Card = BInt<0, 14>
 # of a card in the deck
 # so a number from 0 to 52
 using CardIndex = BInt<0, 52>
+
+cls Hit:
+    Int hit
+        
+cls Stand:
+    Int stand
+
 
 # A deck is a class, called
 # entities in RL. It has 
@@ -84,6 +92,9 @@ fun calculate_points(BoundedVector<Card, 20> hand) -> Int:
 # to look for.
 @classes
 act play() -> Game:
+
+    frm hit_button : Hit
+    frm stand_button : Stand
 
     # allocates a deck and initializes it
     # the deck is marked hidden, so that 
@@ -197,3 +208,6 @@ fun pretty_print(Game g):
    let hand = "player hand: "s
    hand.append(to_string(g.player_hand))
    print(hand)
+
+fun game_diff(Game before, Game after, Vector<String> out):
+    diff(before, after, out)
