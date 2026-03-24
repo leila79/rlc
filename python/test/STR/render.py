@@ -5,7 +5,6 @@ from typing import Dict
 from ctypes import c_long, Array, c_bool
 from rlc.renderer.factory import RendererFactory
 from test.red_board_renderer import RedBoard
-from test.tic_tac_toe_board import TicTacToeBoardRenderer
 from rlc.layout import  Direction
 import os
 import pygame, time, random

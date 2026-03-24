@@ -7,6 +7,7 @@ from rlc.renderer.factory import RendererFactory
 from rlc.serialization.renderer_serializer import save_renderer
 from rlc.renderer.interaction_context import InteractionContext
 import os
+# from red_board_renderer import RedBoard
 
 
 def make_array_accessor(index):
@@ -68,7 +69,11 @@ if __name__ == "__main__":
         # Load interaction config at compile-time
         interaction_ctx = InteractionContext.from_config_file()
 
-        config = {}  # Custom renderer overrides (e.g., {Board: RedBoard})
+        config = {
+            # 'Board' : {
+            #     'renderer' : RedBoard
+            # }
+        }  # Custom renderer overrides (e.g., {Board: RedBoard})
 
         # Build renderer tree with interaction mappings
         # Start with rlc_path=['Game'] so the root type name is in the path

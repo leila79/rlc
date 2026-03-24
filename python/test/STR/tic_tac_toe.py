@@ -9,12 +9,18 @@ import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
 from rlc.serialization.renderer_serializer import load_renderer
-from simulate import new_timing_bucket, relayout, any_child_dirty, print_timings
+from simulate import new_timing_bucket, relayout, print_timings
 from rlc.renderer.config_parser import action, ACTION_REGISTRY
+from rlc.event_queue import UpdateController, UpdateSignal, SignalKind
+from rlc.sim_renderer_mapping import SimRendererMapping
 
 @action("mark_cell")
 def mark_cell(program, state, x, y):
     print("calling mark", x , y)
+    # Only allow human (player 2) to mark when it's their turn
+    if hasattr(state.state.board, 'playerTurn') and state.state.board.playerTurn == False:
+        print("Not your turn!")
+        return False
     mod = program.module if program else getattr(state, "program", None).module
     pos_r = mod.make_pos(x)
     pos_c = mod.make_pos(y)
@@ -23,15 +29,14 @@ def mark_cell(program, state, x, y):
     state.state.mark(pos_r, pos_c)
     return True
 
-def play_random_turn(elapsed_time, state, renderer, layout):
+def play_random_turn(state, controller):
         actions = state.legal_actions or []
         if not actions:
             return False
         action = random.choice(actions)
         print(action)
         state.step(action)
-        renderer.update(layout, state.state, elapsed_time)
-        layout.is_dirty = True
+        controller.notify_state_changed()
         return True
 
 
@@ -74,15 +79,13 @@ if __name__ == "__main__":
         running = True
         
         # renderer.print_tree()
-        print(renderer)
+        # print(renderer)
         iterations = 1
         current = 0
         STEP_DELAY = 0.9  # seconds per state
         logger = LayoutLogger(LayoutLogConfig())
         logger = None
         state = None
-        scroll = {"x": 0, "y": 0}
-
 
         while running and current < iterations:
             compute_times = new_timing_bucket()
@@ -92,63 +95,77 @@ if __name__ == "__main__":
                 state.reset()
             else:
                 state = program.start()
-            layout = renderer(state.state)
-            
+            mapping = SimRendererMapping()
+            layout = renderer(state.state, parent_path=[], mapping=mapping, rlc_type=program.module.Game)
             actions = state.legal_actions
-            relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+            mapping.print_mapping()
 
-            if logger: 
+            # Dispatch callback: tic_tac_toe handlers take (program, state, **args)
+            def dispatch_action(handler_name, args):
+                return ACTION_REGISTRY[handler_name](program, state, **args)
+
+            def do_relayout():
+                relayout(screen, backend, layout, logger, compute_times, layout_times, controller.scroll)
+
+            controller = UpdateController(renderer, layout, do_relayout, dispatch_action,
+                                          mapping=mapping, state_obj=state.state)
+            do_relayout()
+
+            if logger:
                 logger.record_final_tree(root=layout)
-        
-            last_update = time.time()
+
             accumulated_time = 0.0
             elapsed = 0.0
             while running:
+                # Phase 1: COLLECT
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
-                    if event.type == pygame.VIDEORESIZE:
+
+                    elif event.type == pygame.VIDEORESIZE:
                         screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
                         backend = PygameRenderer(screen)
-                        relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
-                    if event.type == pygame.MOUSEWHEEL:
-                        # y is vertical wheel, x is horizontal wheel; positive y = scroll up
-                        scroll["y"] += event.y * 30
-                        scroll["x"] += event.x * 30
-                        relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
-                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        controller.enqueue(UpdateSignal(kind=SignalKind.RESIZE))
+
+                    elif event.type == pygame.MOUSEWHEEL:
+                        controller.enqueue(UpdateSignal(
+                            kind=SignalKind.SCROLL,
+                            dy=event.y * 30,
+                            dx=event.x * 30))
+
+                    elif event.type == pygame.MOUSEBUTTONDOWN:
                         mx, my = pygame.mouse.get_pos()
                         target = layout.find_target(mx, my)
-                        if target and hasattr(target, "on_click"):
+                        if target and hasattr(target, "on_click") and target.on_click:
                             meta = target.on_click
-                            if meta:
-                                handler = meta["handler"]
-                                args = meta["args"]
-                                changed = ACTION_REGISTRY[handler](program, state, **args)
-                                if changed:
-                                    layout.is_dirty = True
-                                if layout.is_dirty or any_child_dirty(layout):
-                                    relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+                            controller.enqueue(UpdateSignal(
+                                kind=SignalKind.ACTION,
+                                handler_name=meta["handler"],
+                                args=meta["args"]))
 
+                # Phases 2-4: MUTATE, UPDATE, RELAYOUT (once per frame)
                 elapsed = clock.tick(60) / 1000.0
                 accumulated_time += elapsed
-                
+
                 if accumulated_time >= STEP_DELAY:
                     accumulated_time = 0.0
                     if not state.is_done():
                         # Auto-play when it's not the player's turn
-                        if hasattr(state.state.board ,'playerTurn') and state.state.board.playerTurn == False:
-                            if play_random_turn(elapsed, state, renderer, layout):
-                                relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+                        if hasattr(state.state.board, 'playerTurn') and state.state.board.playerTurn == False:
+                            play_random_turn(state, controller)
                     else:
                         print("Game done.")
                         break
+
+                controller.process(state.state, elapsed)
+
+                # Phase 5: RENDER
                 screen.fill("white")
                 render(backend, layout)
                 pygame.display.flip()
             current += 1
             print_timings(f"iteration {current}", compute_times, layout_times)
             time.sleep(1.0)
-        
+
     pygame.quit()
         

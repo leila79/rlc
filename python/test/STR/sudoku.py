@@ -4,11 +4,14 @@ from rlc.renderer.factory import RendererFactory
 import pygame, time, random
 from test.display_layout import  render, PygameRenderer
 from rlc import LayoutLogConfig, LayoutLogger
-from simulate import new_timing_bucket, relayout, any_child_dirty, print_timings
+from simulate import new_timing_bucket, relayout, print_timings
 import os
 from rlc.renderer.config_parser import action, ACTION_REGISTRY
 from rlc.serialization.renderer_serializer import load_renderer, save_renderer
 from rlc.renderer.interaction_context import InteractionContext
+from test.red_board_renderer import RedBoard
+from rlc.event_queue import UpdateController, UpdateSignal, SignalKind
+from rlc.sim_renderer_mapping import SimRendererMapping
 
 @action("select_cell")
 def select_cell(program, state, x, y):
@@ -53,7 +56,11 @@ if __name__ == "__main__":
         # Load interaction context from config file
         interaction_ctx = InteractionContext.from_config_file()
 
-        config = {}
+        config = {
+            'Game' : {
+                'renderer' : RedBoard
+            }
+        }
         renderer = RendererFactory.from_rlc_type(
             program.module.Game,
             config,
@@ -83,8 +90,6 @@ if __name__ == "__main__":
         logger = LayoutLogger(LayoutLogConfig())
         logger = None
         state = None
-        scroll = {"x": 0, "y": 0}
-
 
         while running and current < iterations:
             compute_times = new_timing_bucket()
@@ -94,102 +99,95 @@ if __name__ == "__main__":
                 state.reset()
             else:
                 state = program.start()
-            layout = renderer(state.state)
+            mapping = SimRendererMapping()
+            layout = renderer(state.state, parent_path=[], mapping=mapping, rlc_type=program.module.Game)
             actions = state.legal_actions
-            relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
+            mapping.print_mapping()
+
+            # Dispatch callback: sudoku handlers take (program, state, **args)
+            def dispatch_action(handler_name, args):
+                return ACTION_REGISTRY[handler_name](program, state, **args)
+
+            # Relayout callback
+            def do_relayout():
+                relayout(screen, backend, layout, logger, compute_times, layout_times, controller.scroll)
+
+            controller = UpdateController(renderer, layout, do_relayout, dispatch_action,
+                                          mapping=mapping, state_obj=state.state)
+            do_relayout()
 
             if logger:
                 logger.record_final_tree(root=layout)
-        
-            last_update = time.time()
+
             accumulated_time = 0.0
             elapsed = 0.0
             while running:
+                # Phase 1: COLLECT - translate pygame events into signals
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         running = False
-                    if event.type == pygame.VIDEORESIZE:
+
+                    elif event.type == pygame.VIDEORESIZE:
                         screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
                         backend = PygameRenderer(screen)
-                        relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
-                    if event.type == pygame.MOUSEWHEEL:
-                        # y is vertical wheel, x is horizontal wheel; positive y = scroll up
-                        scroll["y"] += event.y * 30
-                        scroll["x"] += event.x * 30
-                        relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
-                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        controller.enqueue(UpdateSignal(kind=SignalKind.RESIZE))
+
+                    elif event.type == pygame.MOUSEWHEEL:
+                        controller.enqueue(UpdateSignal(
+                            kind=SignalKind.SCROLL,
+                            dy=event.y * 30,
+                            dx=event.x * 30))
+
+                    elif event.type == pygame.MOUSEBUTTONDOWN:
                         mx, my = pygame.mouse.get_pos()
                         target = layout.find_target(mx, my)
 
-                        if target and hasattr(target, "on_click"):
-                            # Execute click handler
+                        if target and hasattr(target, "on_click") and target.on_click:
                             meta = target.on_click
-                            changed = False
-                            if meta:
-                                handler = meta["handler"]
-                                args = meta["args"]
-                                changed = ACTION_REGISTRY[handler](program, state, **args)
+                            controller.enqueue(UpdateSignal(
+                                kind=SignalKind.ACTION,
+                                handler_name=meta["handler"],
+                                args=meta["args"]))
 
-                            # Auto-focus the clicked cell
-                            layout.set_focus(target)
+                        # Focus the clicked target (or unfocus if None)
+                        controller.enqueue(UpdateSignal(
+                            kind=SignalKind.FOCUS,
+                            target=target if target else None))
 
-                            if changed:
-                                layout.is_dirty = True
-                            if layout.is_dirty or any_child_dirty(layout):
-                                relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
-                        else:
-                            # Clicking elsewhere unfocuses
-                            layout.set_focus(None)
-
-                    if event.type == pygame.KEYDOWN:
-                        # Find the focused node
+                    elif event.type == pygame.KEYDOWN:
                         focused = layout.find_focused_node()
-
-                        if focused:
-                            print(f"Focused node: render_path={focused.render_path}, has on_key={hasattr(focused, 'on_key')}, on_key={getattr(focused, 'on_key', None)}")
-
                         if focused and hasattr(focused, "on_key") and focused.on_key is not None:
-                            # Execute keyboard handler with event parameters
                             meta = focused.on_key
-                            handler = meta["handler"]
-                            args = meta["args"]
-                            params = meta["params"]
-
-                            # Build event_params dict with the key value
+                            # Build event params from pygame event
                             event_params = {}
-                            for param_name in params:
+                            for param_name in meta.get("params", []):
                                 if param_name == "value":
                                     event_params["value"] = event.key
-                                # Add more parameter mappings here if needed
 
-                            # Merge args with event_params
-                            all_args = {**args, **event_params}
-                            changed = ACTION_REGISTRY[handler](program, state, **all_args)
-                            print(changed)
+                            all_args = {**meta["args"], **event_params}
+                            controller.enqueue(UpdateSignal(
+                                kind=SignalKind.ACTION,
+                                handler_name=meta["handler"],
+                                args=all_args))
 
-                            if changed:
-                                renderer.update(layout, state.state, elapsed)
-                                layout.is_dirty = True
-                            if layout.is_dirty or any_child_dirty(layout):
-                                print("relayout")
-                                relayout(screen, backend, layout, logger, compute_times, layout_times, scroll)
-
+                # Phases 2-4: MUTATE, UPDATE, RELAYOUT (once per frame)
                 elapsed = clock.tick(60) / 1000.0
+                controller.process(state.state, elapsed)
+
                 accumulated_time += elapsed
-                
                 if accumulated_time >= STEP_DELAY:
                     accumulated_time = 0.0
-                    if not state.is_done():
-                        pass
-                    else:
+                    if state.is_done():
                         print("Game done.")
                         break
+
+                # Phase 5: RENDER
                 screen.fill("white")
                 render(backend, layout)
                 pygame.display.flip()
             current += 1
             print_timings(f"iteration {current}", compute_times, layout_times)
             time.sleep(1.0)
-        
+
     pygame.quit()
         
